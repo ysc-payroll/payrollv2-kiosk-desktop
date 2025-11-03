@@ -56,10 +56,10 @@ class Database:
 
     def log_time_entry(self, employee_id, action, photo_path=None):
         """
-        Insert a time log entry.
+        Insert a time log entry into the timesheet table.
 
         Args:
-            employee_id (str): Employee ID
+            employee_id (str): Employee number (will be looked up)
             action (str): "IN" or "OUT"
             photo_path (str, optional): Path to captured photo
 
@@ -76,12 +76,40 @@ class Database:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+            # Look up employee by employee_number to get database ID
+            employee_number = int(employee_id.strip())
             cursor.execute("""
-                INSERT INTO kiosk_logs (employee_id, action, timestamp, photo_path, synced)
-                VALUES (?, ?, ?, ?, 0)
-            """, (employee_id.strip(), action, timestamp, photo_path))
+                SELECT id FROM employee WHERE employee_number = ?
+            """, (employee_number,))
+
+            employee_row = cursor.fetchone()
+            if not employee_row:
+                conn.close()
+                return False, f"Employee {employee_number} not found", None
+
+            db_employee_id = employee_row[0]
+
+            # Get current timestamp
+            now = datetime.now()
+            date_str = now.strftime("%Y-%m-%d")
+            time_str = now.strftime("%H:%M")
+            timestamp_str = now.strftime("%Y%m%d%H%M%S")
+
+            # Generate sync_id (format: company_id_employee_id_timestamp)
+            # For now, use 1001 as default company_id
+            sync_id = f"1001_{db_employee_id}_{timestamp_str}"
+
+            # Convert action to lowercase for log_type
+            log_type = action.lower()
+
+            # Insert into new timesheet table
+            cursor.execute("""
+                INSERT INTO timesheet (
+                    sync_id, employee_id, log_type, date, time,
+                    photo_path, is_synced, status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0, 'success')
+            """, (sync_id, db_employee_id, log_type, date_str, time_str, photo_path))
 
             log_id = cursor.lastrowid
             conn.commit()
@@ -89,24 +117,110 @@ class Database:
 
             return True, f"Successfully clocked {action}", log_id
 
+        except ValueError:
+            return False, "Invalid employee number format", None
         except Exception as e:
+            # Log error to database
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+
+                # Try to get employee_id for error logging
+                try:
+                    employee_number = int(employee_id.strip())
+                    cursor.execute("SELECT id FROM employee WHERE employee_number = ?", (employee_number,))
+                    employee_row = cursor.fetchone()
+                    if employee_row:
+                        db_employee_id = employee_row[0]
+                        now = datetime.now()
+                        date_str = now.strftime("%Y-%m-%d")
+                        time_str = now.strftime("%H:%M")
+                        timestamp_str = now.strftime("%Y%m%d%H%M%S")
+                        sync_id = f"1001_{db_employee_id}_{timestamp_str}"
+                        log_type = action.lower()
+
+                        # Insert error entry
+                        cursor.execute("""
+                            INSERT INTO timesheet (
+                                sync_id, employee_id, log_type, date, time,
+                                photo_path, is_synced, status, error_message
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, 0, 'error', ?)
+                        """, (sync_id, db_employee_id, log_type, date_str, time_str, photo_path, str(e)))
+                        conn.commit()
+                except:
+                    pass
+
+                conn.close()
+            except:
+                pass
+
             return False, f"Database error: {str(e)}", None
 
     def get_recent_logs(self, limit=10):
-        """Get recent log entries (for Phase 2)."""
+        """Get recent log entries with employee details."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
+        # Try new timesheet table first
         cursor.execute("""
-            SELECT id, employee_id, action, timestamp, photo_path, synced
-            FROM kiosk_logs
-            ORDER BY timestamp DESC
+            SELECT t.id, t.employee_id, e.employee_code, e.name, t.log_type,
+                   t.date || ' ' || t.time as timestamp, t.photo_path, t.is_synced,
+                   t.status, t.error_message
+            FROM timesheet t
+            LEFT JOIN employee e ON t.employee_id = e.id
+            ORDER BY t.date || ' ' || t.time DESC
             LIMIT ?
         """, (limit,))
 
         rows = cursor.fetchall()
-        conn.close()
 
+        # If no results from timesheet, fall back to old kiosk_logs table
+        if not rows:
+            cursor.execute("""
+                SELECT id, employee_id, NULL as employee_code, NULL as name,
+                       action, timestamp, photo_path, synced,
+                       'success' as status, NULL as error_message
+                FROM kiosk_logs
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (limit,))
+            rows = cursor.fetchall()
+
+        conn.close()
+        return rows
+
+    def get_logs_by_date_range(self, date_from, date_to):
+        """Get log entries filtered by date range with employee details."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        # Try new timesheet table first
+        cursor.execute("""
+            SELECT t.id, t.employee_id, e.employee_code, e.name, t.log_type,
+                   t.date || ' ' || t.time as timestamp, t.photo_path, t.is_synced,
+                   t.status, t.error_message
+            FROM timesheet t
+            LEFT JOIN employee e ON t.employee_id = e.id
+            WHERE t.date >= ? AND t.date <= ?
+            ORDER BY t.date || ' ' || t.time DESC
+        """, (date_from, date_to))
+
+        rows = cursor.fetchall()
+
+        # If no results from timesheet, fall back to old kiosk_logs table
+        if not rows:
+            cursor.execute("""
+                SELECT id, employee_id, NULL as employee_code, NULL as name,
+                       action, timestamp, photo_path, synced,
+                       'success' as status, NULL as error_message
+                FROM kiosk_logs
+                WHERE DATE(timestamp) >= ? AND DATE(timestamp) <= ?
+                ORDER BY timestamp DESC
+            """, (date_from, date_to))
+            rows = cursor.fetchall()
+
+        conn.close()
         return rows
 
     def get_unsynced_logs(self):

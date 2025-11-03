@@ -90,6 +90,8 @@ CREATE TABLE timesheet (
     photo_path TEXT,
     is_synced BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'success' CHECK(status IN ('success', 'error')),
+    error_message TEXT,
     FOREIGN KEY (employee_id) REFERENCES employee(id)
 )
 ```
@@ -104,6 +106,8 @@ CREATE TABLE timesheet (
 - `photo_path`: Path to captured photo (optional)
 - `is_synced`: Boolean flag (0 = not synced, 1 = synced to backend)
 - `created_at`: Record creation timestamp
+- `status`: Operation status ("success" or "error") - defaults to "success"
+- `error_message`: Error details if status is "error" (optional)
 
 **Indexes:**
 - `idx_timesheet_sync_id` on `sync_id`
@@ -130,6 +134,18 @@ Creates all tables and indexes:
 ```bash
 python create_schema.py
 ```
+
+### Add Status Fields Migration
+
+Adds status tracking fields to existing timesheet table:
+
+```bash
+python add_status_fields.py
+```
+
+This migration adds:
+- `status` column: Tracks if the time entry was successful or encountered an error
+- `error_message` column: Stores error details when status is "error"
 
 ### Seed Sample Data
 
@@ -200,6 +216,20 @@ SET is_synced = 1
 WHERE id IN (1, 2, 3);
 ```
 
+### Get Failed Timesheet Entries
+
+```sql
+SELECT
+    t.*,
+    e.employee_code,
+    e.name,
+    t.error_message
+FROM timesheet t
+JOIN employee e ON t.employee_id = e.id
+WHERE t.status = 'error'
+ORDER BY t.created_at DESC;
+```
+
 ---
 
 ## Notes
@@ -224,6 +254,12 @@ WHERE id IN (1, 2, 3);
    ```sql
    PRAGMA foreign_keys = ON;
    ```
+
+6. **Status Tracking**: All time entries track success/failure
+   - `status = 'success'`: Entry was recorded successfully (default)
+   - `status = 'error'`: Entry encountered an error
+   - `error_message`: Contains error details when status is 'error'
+   - Frontend displays status icon (✓ for success, ✗ for error) with tooltip
 
 ---
 

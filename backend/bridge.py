@@ -116,14 +116,64 @@ class KioskBridge(QObject):
             # Convert to list of dictionaries
             logs_list = []
             for log in logs:
-                log_id, emp_id, action, timestamp, photo_path, synced = log
+                log_id, emp_id, emp_code, emp_name, action, timestamp, photo_path, synced, status, error_message = log
                 logs_list.append({
                     "id": log_id,
                     "employee_id": emp_id,
+                    "employee_code": emp_code,
+                    "employee_name": emp_name,
                     "action": action,
                     "timestamp": timestamp,
                     "photo_path": photo_path,
-                    "synced": bool(synced)
+                    "synced": bool(synced),
+                    "status": status,
+                    "error_message": error_message
+                })
+
+            return json.dumps({
+                "success": True,
+                "logs": logs_list
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "logs": [],
+                "error": str(e)
+            })
+
+    @pyqtSlot(str, str, result=str)
+    def getLogsByDateRange(self, date_from, date_to):
+        """
+        Get timesheet logs filtered by date range.
+
+        Args:
+            date_from (str): Start date in YYYY-MM-DD format
+            date_to (str): End date in YYYY-MM-DD format
+
+        Returns:
+            str: JSON string with logs array
+        """
+        import json
+
+        try:
+            logs = self.db.get_logs_by_date_range(date_from, date_to)
+
+            # Convert to list of dictionaries
+            logs_list = []
+            for log in logs:
+                log_id, emp_id, emp_code, emp_name, action, timestamp, photo_path, synced, status, error_message = log
+                logs_list.append({
+                    "id": log_id,
+                    "employee_id": emp_id,
+                    "employee_code": emp_code,
+                    "employee_name": emp_name,
+                    "action": action,
+                    "timestamp": timestamp,
+                    "photo_path": photo_path,
+                    "synced": bool(synced),
+                    "status": status,
+                    "error_message": error_message
                 })
 
             return json.dumps({
@@ -187,5 +237,52 @@ class KioskBridge(QObject):
             return json.dumps({
                 "success": False,
                 "employee": None,
+                "error": str(e)
+            })
+
+    @pyqtSlot(result=str)
+    def getCurrentCompany(self):
+        """
+        Get current company information.
+
+        Returns:
+            str: JSON string with company data
+        """
+        import json
+
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            # Get the first company (in the future, this could be configurable)
+            cursor.execute("""
+                SELECT id, backend_id, name
+                FROM company
+                LIMIT 1
+            """)
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if row:
+                company_id, backend_id, name = row
+                return json.dumps({
+                    "success": True,
+                    "company": {
+                        "id": company_id,
+                        "backend_id": backend_id,
+                        "name": name
+                    }
+                })
+            else:
+                return json.dumps({
+                    "success": True,
+                    "company": None
+                })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "company": None,
                 "error": str(e)
             })

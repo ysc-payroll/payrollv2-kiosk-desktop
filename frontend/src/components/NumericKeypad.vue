@@ -4,28 +4,40 @@
       v-for="num in numbers"
       :key="num"
       @click="handleClick(num)"
-      class="keypad-button bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xl rounded-lg transition-colors duration-150 h-12"
+      class="keypad-button text-white font-bold text-xl rounded-lg transition-colors duration-150 h-12"
+      style="background-color: #3073F1;"
+      @mouseover="handleKeypadHover($event, 'number', true)"
+      @mouseout="handleKeypadHover($event, 'number', false)"
     >
       {{ num }}
     </button>
 
     <button
       @click="handleBackspace"
-      class="keypad-button bg-gray-600 hover:bg-gray-700 active:bg-gray-800 text-white font-bold text-base rounded-lg transition-colors duration-150 h-12"
+      class="keypad-button text-white font-bold text-base rounded-lg transition-colors duration-150 h-12"
+      style="background-color: #68625D;"
+      @mouseover="handleKeypadHover($event, 'backspace', true)"
+      @mouseout="handleKeypadHover($event, 'backspace', false)"
     >
       ←
     </button>
 
     <button
       @click="handleClick('0')"
-      class="keypad-button bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xl rounded-lg transition-colors duration-150 h-12"
+      class="keypad-button text-white font-bold text-xl rounded-lg transition-colors duration-150 h-12"
+      style="background-color: #3073F1;"
+      @mouseover="handleKeypadHover($event, 'number', true)"
+      @mouseout="handleKeypadHover($event, 'number', false)"
     >
       0
     </button>
 
     <button
       @click="handleClear"
-      class="keypad-button bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-base rounded-lg transition-colors duration-150 h-12"
+      class="keypad-button text-white font-bold text-base rounded-lg transition-colors duration-150 h-12"
+      style="background-color: #E63535;"
+      @mouseover="handleKeypadHover($event, 'clear', true)"
+      @mouseout="handleKeypadHover($event, 'clear', false)"
     >
       CLR
     </button>
@@ -47,6 +59,18 @@ const handleBackspace = () => {
 
 const handleClear = () => {
   emit('clear')
+}
+
+// Hover handlers
+const keypadColors = {
+  number: { normal: '#3073F1', hover: '#2563D0' },
+  backspace: { normal: '#68625D', hover: '#554F4B' },
+  clear: { normal: '#E63535', hover: '#CC2E2E' }
+}
+
+const handleKeypadHover = (event, colorKey, isHover) => {
+  const colors = keypadColors[colorKey]
+  event.currentTarget.style.backgroundColor = isHover ? colors.hover : colors.normal
 }
 </script>
 

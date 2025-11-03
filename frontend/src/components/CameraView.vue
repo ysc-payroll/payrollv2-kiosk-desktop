@@ -18,7 +18,18 @@
       </div>
     </div>
 
-    <div v-if="!cameraReady && !error" class="absolute inset-0 flex items-center justify-center bg-gray-900 text-white">
+    <div v-if="!enabled" class="absolute inset-0 flex items-center justify-center bg-gray-900 text-white">
+      <div class="text-center p-8">
+        <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <p class="text-xl font-semibold">Camera Disabled</p>
+        <p class="text-sm mt-2 text-gray-400">Enable camera to capture photos</p>
+      </div>
+    </div>
+
+    <div v-else-if="!cameraReady && !error" class="absolute inset-0 flex items-center justify-center bg-gray-900 text-white">
       <div class="text-center">
         <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
         <p>Initializing camera...</p>
@@ -28,7 +39,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+
+const props = defineProps({
+  enabled: {
+    type: Boolean,
+    default: true
+  }
+})
 
 const videoElement = ref(null)
 const canvasElement = ref(null)
@@ -38,7 +56,9 @@ let stream = null
 
 const emit = defineEmits(['ready', 'error'])
 
-onMounted(async () => {
+const startCamera = async () => {
+  if (!props.enabled) return
+
   try {
     // Request camera access
     stream = await navigator.mediaDevices.getUserMedia({
@@ -62,11 +82,36 @@ onMounted(async () => {
     error.value = err.message || 'Unable to access camera'
     emit('error', error.value)
   }
+}
+
+const stopCamera = () => {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop())
+    stream = null
+  }
+  cameraReady.value = false
+  error.value = null
+  if (videoElement.value) {
+    videoElement.value.srcObject = null
+  }
+}
+
+onMounted(() => {
+  if (props.enabled) {
+    startCamera()
+  }
 })
 
 onBeforeUnmount(() => {
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop())
+  stopCamera()
+})
+
+// Watch for enabled prop changes
+watch(() => props.enabled, (newVal) => {
+  if (newVal) {
+    startCamera()
+  } else {
+    stopCamera()
   }
 })
 

@@ -54,11 +54,11 @@ let timeout = null
 const toastClass = computed(() => {
   switch (props.type) {
     case 'success':
-      return 'bg-green-600'
+      return 'toast-success'
     case 'error':
-      return 'bg-red-600'
+      return 'toast-error'
     default:
-      return 'bg-blue-600'
+      return 'toast-info'
   }
 })
 
@@ -81,6 +81,18 @@ watch(() => props.show, (newVal) => {
 </script>
 
 <style scoped>
+.toast-success {
+  background-color: #1CB454;
+}
+
+.toast-error {
+  background-color: #E63535;
+}
+
+.toast-info {
+  background-color: #0895D8;
+}
+
 .toast-enter-active,
 .toast-leave-active {
   transition: all 0.3s ease;
