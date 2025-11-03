@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import CameraView from './components/CameraView.vue'
 import NumericKeypad from './components/NumericKeypad.vue'
 import ToastNotification from './components/ToastNotification.vue'
+import LoginView from './components/LoginView.vue'
 
 // Component refs
 const cameraRef = ref(null)
@@ -71,16 +72,20 @@ onMounted(() => {
       kioskBridge = channel.objects.kioskBridge
       console.log('PyQt bridge connected')
 
-      // Load company info and recent logs after bridge is ready
-      loadCompanyInfo()
-      loadRecentLogs()
+      // Only load data if authenticated (login will load data after successful auth)
+      if (isAuthenticated.value) {
+        loadCompanyInfo()
+        loadRecentLogs()
+      }
     })
   } else {
     console.warn('PyQt bridge not available - running in browser mode')
   }
 
-  // Auto-focus input field on mount
-  focusInput()
+  // Auto-focus input field on mount (only if authenticated)
+  if (isAuthenticated.value) {
+    focusInput()
+  }
 
   // Add click outside handler for user dropdown
   document.addEventListener('click', handleClickOutside)
@@ -415,6 +420,10 @@ const companyName = ref('Timekeeper Kiosk') // Default fallback
 // Application version
 const appVersion = ref('v2.0.0')
 
+// Authentication state
+const isAuthenticated = ref(false)
+const currentUser = ref(null)
+
 const toggleUserDropdown = () => {
   userDropdownOpen.value = !userDropdownOpen.value
 }
@@ -426,7 +435,22 @@ const handleSettings = () => {
 
 const handleLogout = () => {
   userDropdownOpen.value = false
-  showToast('Logout - Coming soon', 'info')
+  isAuthenticated.value = false
+  currentUser.value = null
+  currentUserName.value = 'Admin User'
+  showToast('Logged out successfully', 'success')
+}
+
+// Handle successful login
+const handleLoginSuccess = (data) => {
+  isAuthenticated.value = true
+  currentUser.value = data.user
+  currentUserName.value = data.user.name
+  showToast(`Welcome back, ${data.user.name}!`, 'success')
+
+  // Load company info and recent logs after login
+  loadCompanyInfo()
+  loadRecentLogs()
 }
 
 // Load company information
@@ -468,7 +492,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="kiosk-app h-screen flex flex-col overflow-hidden" style="background-color: #EEF2F7;">
+  <!-- Login View -->
+  <LoginView
+    v-if="!isAuthenticated"
+    :app-version="appVersion"
+    @login-success="handleLoginSuccess"
+  />
+
+  <!-- Main Application -->
+  <div v-else class="kiosk-app h-screen flex flex-col overflow-hidden" style="background-color: #EEF2F7;">
 
     <!-- TOP NAVIGATION BAR -->
     <div class="topnav flex items-center justify-between px-4 shadow-md" style="height: 64px; background-color: #3073F1;">

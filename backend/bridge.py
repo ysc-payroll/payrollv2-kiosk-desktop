@@ -286,3 +286,147 @@ class KioskBridge(QObject):
                 "company": None,
                 "error": str(e)
             })
+
+    @pyqtSlot(str, str, bool, result=str)
+    def authenticateUser(self, email, password, remember_me):
+        """
+        Authenticate user with email and password.
+
+        Args:
+            email (str): User email
+            password (str): User password (will be hashed)
+            remember_me (bool): Whether to remember the user
+
+        Returns:
+            str: JSON string with authentication result
+        """
+        import json
+        import hashlib
+
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            # Hash the password (simple SHA256 for now - in production use bcrypt or similar)
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+
+            # Check if users table exists, if not create it
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    role TEXT DEFAULT 'user',
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME
+                )
+            """)
+
+            # Try to find user with matching email and password
+            cursor.execute("""
+                SELECT id, email, name, role, is_active
+                FROM users
+                WHERE email = ? AND password_hash = ? AND is_active = 1
+            """, (email, password_hash))
+
+            user = cursor.fetchone()
+
+            if user:
+                user_id, user_email, name, role, is_active = user
+
+                # Update last login timestamp
+                cursor.execute("""
+                    UPDATE users
+                    SET last_login = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (user_id,))
+                conn.commit()
+
+                conn.close()
+
+                return json.dumps({
+                    "success": True,
+                    "user": {
+                        "id": user_id,
+                        "email": user_email,
+                        "name": name,
+                        "role": role
+                    }
+                })
+            else:
+                conn.close()
+                return json.dumps({
+                    "success": False,
+                    "error": "Invalid email or password"
+                })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e)
+            })
+
+    @pyqtSlot(str, str, str, result=str)
+    def createUser(self, email, password, name):
+        """
+        Create a new user account.
+
+        Args:
+            email (str): User email
+            password (str): User password
+            name (str): User full name
+
+        Returns:
+            str: JSON string with creation result
+        """
+        import json
+        import hashlib
+
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            # Hash the password
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+
+            # Create users table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    role TEXT DEFAULT 'user',
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME
+                )
+            """)
+
+            # Insert new user
+            cursor.execute("""
+                INSERT INTO users (email, password_hash, name, role)
+                VALUES (?, ?, ?, 'admin')
+            """, (email, password_hash, name))
+
+            conn.commit()
+            user_id = cursor.lastrowid
+            conn.close()
+
+            return json.dumps({
+                "success": True,
+                "user": {
+                    "id": user_id,
+                    "email": email,
+                    "name": name,
+                    "role": "admin"
+                }
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e)
+            })
