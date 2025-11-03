@@ -1,0 +1,11 @@
+# PyQt6 for desktop application
+# All versions must match to avoid symbol errors
+PyQt6==6.6.1
+PyQt6-Qt6==6.6.1
+PyQt6-WebEngine==6.6.0
+PyQt6-WebEngine-Qt6==6.6.0
+PyQt6-sip==13.6.0
+
+# Note: If you have Qt installed via Homebrew, uninstall it first:
+# brew uninstall qt --ignore-dependencies
+# This ensures PyQt6 uses its bundled Qt libraries
