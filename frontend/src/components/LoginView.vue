@@ -31,6 +31,7 @@
               <input
                 v-model="email"
                 type="email"
+                required
                 autocomplete="email"
                 class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
                 placeholder="you@company.com"
@@ -44,6 +45,7 @@
               <input
                 v-model="password"
                 type="password"
+                required
                 autocomplete="current-password"
                 class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
                 placeholder="••••••••"
@@ -105,6 +107,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import apiService from '../services/api.js'
 
 // Props
 const props = defineProps({
@@ -149,35 +152,7 @@ const loadCompanyInfo = async () => {
 
 // Handle login submission
 const handleLogin = async () => {
-  // DEVELOPMENT MODE: Auto-login without authentication
-  // TODO: Remove this bypass when API is ready
-
-  isLoading.value = true
-  errorMessage.value = ''
-
-  try {
-    // Simulate a brief loading delay for better UX
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    // Auto-login with mock user data
-    emit('login-success', {
-      user: {
-        id: 1,
-        email: email.value || 'admin@company.com',
-        name: 'Admin User',
-        role: 'admin'
-      },
-      rememberMe: rememberMe.value
-    })
-  } catch (error) {
-    console.error('Login error:', error)
-    errorMessage.value = 'An error occurred during login. Please try again.'
-  } finally {
-    isLoading.value = false
-  }
-
-  /*
-  // PRODUCTION CODE: Uncomment this when API is ready
+  // Validate inputs
   if (!email.value || !password.value) {
     errorMessage.value = 'Please enter both email and password'
     return
@@ -187,30 +162,86 @@ const handleLogin = async () => {
   errorMessage.value = ''
 
   try {
-    if (!kioskBridge) {
-      throw new Error('Bridge not available')
-    }
+    // Call API to authenticate
+    const result = await apiService.login(email.value, password.value)
 
-    // Call bridge method to authenticate
-    const result = await kioskBridge.authenticateUser(email.value, password.value, rememberMe.value)
-    const data = JSON.parse(result)
+    if (result.success) {
+      // Successful login - now get complete user info
+      const userInfoResult = await apiService.getUserInfo()
 
-    if (data.success) {
-      // Emit success event to parent component
-      emit('login-success', {
-        user: data.user,
-        rememberMe: rememberMe.value
-      })
+      if (userInfoResult.success) {
+        const userData = userInfoResult.data
+
+        // Build user display name
+        let displayName = `${userData.first_name} ${userData.last_name}`.trim()
+        if (!displayName) {
+          displayName = userData.email // Fallback to email if no name
+        }
+
+        console.log('🟢 LoginView: userData from API:', userData)
+        console.log('🟢 LoginView: Company object:', userData.company)
+
+        // Emit success with complete user and company data
+        const loginSuccessData = {
+          user: {
+            id: userData.id,
+            email: userData.email,
+            name: displayName,
+            firstName: userData.first_name,
+            lastName: userData.last_name,
+            isSuperuser: userData.is_superuser,
+            isStaff: userData.is_staff
+          },
+          company: userData.company,
+          employee: userData.employee,
+          roles: userData.roles || [],
+          permissions: userData.permissions,
+          rights: userData.rights, // Include original rights
+          portalAccessType: userData.portal_access_type,
+          canSwitchPortals: userData.can_switch_portals,
+          hasAdminAccess: userData.admin_portal_access,
+          hasEmployeeAccess: userData.employee_portal_access,
+          rememberMe: rememberMe.value
+        };
+
+        console.log('🟢 LoginView: Emitting login-success with data:', loginSuccessData);
+        emit('login-success', loginSuccessData);
+      } else {
+        // Failed to get user info, but login was successful
+        console.error('❌ LoginView: getUserInfo failed!', userInfoResult);
+        console.error('❌ LoginView: Error message:', userInfoResult.message);
+
+        // Use basic user data from login response
+        emit('login-success', {
+          user: {
+            id: result.user.pk,
+            email: result.user.email,
+            name: `${result.user.first_name} ${result.user.last_name}`,
+            firstName: result.user.first_name,
+            lastName: result.user.last_name
+          },
+          hasAdminAccess: result.hasAdminAccess,
+          hasEmployeeAccess: result.hasEmployeeAccess,
+          rememberMe: rememberMe.value
+        })
+      }
+    } else if (result.requiresOTP) {
+      // 2FA required
+      errorMessage.value = 'Two-factor authentication is required. This feature is coming soon.'
+      // TODO: Implement OTP flow
+    } else if (result.unverified) {
+      // Account not verified
+      errorMessage.value = 'Your account email is not verified. Please check your email.'
     } else {
-      errorMessage.value = data.error || 'Invalid email or password'
+      // Other errors
+      errorMessage.value = result.message || 'Invalid email or password'
     }
   } catch (error) {
     console.error('Login error:', error)
-    errorMessage.value = 'An error occurred during login. Please try again.'
+    errorMessage.value = error.message || 'An error occurred during login. Please try again.'
   } finally {
     isLoading.value = false
   }
-  */
 }
 
 // Handle forgot password

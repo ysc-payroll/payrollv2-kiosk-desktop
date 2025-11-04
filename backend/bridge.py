@@ -287,80 +287,110 @@ class KioskBridge(QObject):
                 "error": str(e)
             })
 
-    @pyqtSlot(str, str, bool, result=str)
-    def authenticateUser(self, email, password, remember_me):
+    @pyqtSlot(result=str)
+    def getCurrentUser(self):
         """
-        Authenticate user with email and password.
-
-        Args:
-            email (str): User email
-            password (str): User password (will be hashed)
-            remember_me (bool): Whether to remember the user
+        Get the current logged-in user from local database.
+        There can only be one user record (id must equal 1).
 
         Returns:
-            str: JSON string with authentication result
+            str: JSON string with user data or None if not logged in
         """
         import json
-        import hashlib
 
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
 
-            # Hash the password (simple SHA256 for now - in production use bcrypt or similar)
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-
-            # Check if users table exists, if not create it
+            # Get the single user record
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    role TEXT DEFAULT 'user',
-                    is_active BOOLEAN DEFAULT 1,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    last_login DATETIME
-                )
+                SELECT id, email, name, is_active, last_login
+                FROM users
+                WHERE id = 1 AND is_active = 1
             """)
 
-            # Try to find user with matching email and password
-            cursor.execute("""
-                SELECT id, email, name, role, is_active
-                FROM users
-                WHERE email = ? AND password_hash = ? AND is_active = 1
-            """, (email, password_hash))
-
             user = cursor.fetchone()
+            conn.close()
 
             if user:
-                user_id, user_email, name, role, is_active = user
-
-                # Update last login timestamp
-                cursor.execute("""
-                    UPDATE users
-                    SET last_login = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (user_id,))
-                conn.commit()
-
-                conn.close()
-
+                user_id, email, name, is_active, last_login = user
                 return json.dumps({
                     "success": True,
                     "user": {
                         "id": user_id,
-                        "email": user_email,
+                        "email": email,
                         "name": name,
-                        "role": role
+                        "is_active": bool(is_active),
+                        "last_login": last_login
                     }
                 })
             else:
-                conn.close()
                 return json.dumps({
-                    "success": False,
-                    "error": "Invalid email or password"
+                    "success": True,
+                    "user": None
                 })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "user": None,
+                "error": str(e)
+            })
+
+    @pyqtSlot(str, result=str)
+    def updateCompany(self, company_json):
+        """
+        Update company information in local database from API data.
+
+        Args:
+            company_json (str): JSON string containing company data from API
+
+        Returns:
+            str: JSON string with update result
+        """
+        import json
+
+        try:
+            company = json.loads(company_json)
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            # Extract company data
+            company_id = company.get('id')
+            company_name = company.get('name', '')
+            company_slug = company.get('slug', '')
+            address = company.get('address', '')
+            contact_number = company.get('contact_number', '')
+            email = company.get('email', '')
+
+            # Check if company exists
+            cursor.execute("""
+                SELECT id FROM company WHERE backend_id = ?
+            """, (company_id,))
+
+            existing = cursor.fetchone()
+
+            if existing:
+                # Update existing company
+                cursor.execute("""
+                    UPDATE company
+                    SET name = ?
+                    WHERE backend_id = ?
+                """, (company_name, company_id))
+            else:
+                # Insert new company
+                cursor.execute("""
+                    INSERT INTO company (backend_id, name)
+                    VALUES (?, ?)
+                """, (company_id, company_name))
+
+            conn.commit()
+            conn.close()
+
+            return json.dumps({
+                "success": True,
+                "message": f"Company '{company_name}' updated successfully"
+            })
 
         except Exception as e:
             return json.dumps({
@@ -368,61 +398,135 @@ class KioskBridge(QObject):
                 "error": str(e)
             })
 
-    @pyqtSlot(str, str, str, result=str)
-    def createUser(self, email, password, name):
+    @pyqtSlot(str, result=str)
+    def syncEmployeesFromAPI(self, employees_json):
         """
-        Create a new user account.
+        Sync employees from API to local database.
+
+        Args:
+            employees_json (str): JSON string containing array of employee data from API
+
+        Returns:
+            str: JSON string with sync result
+        """
+        import json
+
+        try:
+            employees = json.loads(employees_json)
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            synced_count = 0
+            skipped_count = 0
+
+            for emp in employees:
+                try:
+                    # Extract employee data from API response
+                    system_id = emp.get('system_id')
+                    first_name = emp.get('first_name', '')
+                    last_name = emp.get('last_name', '')
+                    middle_name = emp.get('middle_name', '')
+
+                    # Build full name
+                    full_name = f"{first_name} {middle_name} {last_name}".strip()
+                    if not full_name:
+                        full_name = f"{first_name} {last_name}".strip()
+
+                    # Use system_id as employee_number
+                    employee_number = system_id
+
+                    # Check if employee already exists
+                    cursor.execute("""
+                        SELECT id FROM employee WHERE backend_id = ?
+                    """, (system_id,))
+
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        # Update existing employee
+                        cursor.execute("""
+                            UPDATE employee
+                            SET name = ?, employee_number = ?
+                            WHERE backend_id = ?
+                        """, (full_name, employee_number, system_id))
+                    else:
+                        # Insert new employee
+                        cursor.execute("""
+                            INSERT INTO employee (backend_id, name, employee_number)
+                            VALUES (?, ?, ?)
+                        """, (system_id, full_name, employee_number))
+
+                    synced_count += 1
+
+                except Exception as e:
+                    print(f"Error syncing employee {emp.get('system_id')}: {e}")
+                    skipped_count += 1
+                    continue
+
+            conn.commit()
+            conn.close()
+
+            return json.dumps({
+                "success": True,
+                "synced_count": synced_count,
+                "skipped_count": skipped_count,
+                "message": f"Successfully synced {synced_count} employees"
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "synced_count": 0,
+                "skipped_count": 0,
+                "error": str(e)
+            })
+
+    @pyqtSlot(str, str, result=str)
+    def updateCurrentUser(self, email, name):
+        """
+        Update or create the current user record after successful API login.
+        There can only be one user record (id = 1).
 
         Args:
             email (str): User email
-            password (str): User password
             name (str): User full name
 
         Returns:
-            str: JSON string with creation result
+            str: JSON string with update result
         """
         import json
-        import hashlib
 
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
 
-            # Hash the password
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-
-            # Create users table if it doesn't exist
+            # Check if user record exists
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    role TEXT DEFAULT 'user',
-                    is_active BOOLEAN DEFAULT 1,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    last_login DATETIME
-                )
+                SELECT id FROM users WHERE id = 1
             """)
 
-            # Insert new user
-            cursor.execute("""
-                INSERT INTO users (email, password_hash, name, role)
-                VALUES (?, ?, ?, 'admin')
-            """, (email, password_hash, name))
+            existing = cursor.fetchone()
+
+            if existing:
+                # Update existing user record
+                cursor.execute("""
+                    UPDATE users
+                    SET email = ?, name = ?, last_login = CURRENT_TIMESTAMP
+                    WHERE id = 1
+                """, (email, name))
+            else:
+                # Insert new user record (must have id = 1)
+                cursor.execute("""
+                    INSERT INTO users (id, email, name, is_active, last_login)
+                    VALUES (1, ?, ?, 1, CURRENT_TIMESTAMP)
+                """, (email, name))
 
             conn.commit()
-            user_id = cursor.lastrowid
             conn.close()
 
             return json.dumps({
                 "success": True,
-                "user": {
-                    "id": user_id,
-                    "email": email,
-                    "name": name,
-                    "role": "admin"
-                }
+                "message": f"User '{name}' updated successfully"
             })
 
         except Exception as e:

@@ -4,6 +4,8 @@ import CameraView from './components/CameraView.vue'
 import NumericKeypad from './components/NumericKeypad.vue'
 import ToastNotification from './components/ToastNotification.vue'
 import LoginView from './components/LoginView.vue'
+import EmployeeList from './components/EmployeeList.vue'
+import apiService from './services/api.js'
 
 // Component refs
 const cameraRef = ref(null)
@@ -65,14 +67,17 @@ const handleCameraToggleHover = (event, isHover) => {
 // PyQt Bridge
 let kioskBridge = null
 
-onMounted(() => {
+onMounted(async () => {
+  // Check authentication status first
+  await checkAuthentication()
+
   // Initialize QWebChannel bridge for PyQt communication
   if (window.qt && window.qt.webChannelTransport) {
     new window.QWebChannel(window.qt.webChannelTransport, (channel) => {
       kioskBridge = channel.objects.kioskBridge
       console.log('PyQt bridge connected')
 
-      // Only load data if authenticated (login will load data after successful auth)
+      // Only load data if authenticated
       if (isAuthenticated.value) {
         loadCompanyInfo()
         loadRecentLogs()
@@ -416,6 +421,7 @@ const currentUserName = ref('Admin User') // Placeholder - will be replaced with
 
 // Company information
 const companyName = ref('Timekeeper Kiosk') // Default fallback
+const companyData = ref(null) // Complete company data from API
 
 // Application version
 const appVersion = ref('v2.0.0')
@@ -423,9 +429,19 @@ const appVersion = ref('v2.0.0')
 // Authentication state
 const isAuthenticated = ref(false)
 const currentUser = ref(null)
+const currentUserPermissions = ref(null)
+const isCheckingAuth = ref(true) // Loading state for initial auth check
+
+// View states
+const showEmployeeList = ref(false)
 
 const toggleUserDropdown = () => {
   userDropdownOpen.value = !userDropdownOpen.value
+}
+
+const handleEmployeeList = () => {
+  showEmployeeList.value = true
+  userDropdownOpen.value = false
 }
 
 const handleSettings = () => {
@@ -433,8 +449,12 @@ const handleSettings = () => {
   showToast('Settings - Coming soon', 'info')
 }
 
-const handleLogout = () => {
+const handleLogout = async () => {
   userDropdownOpen.value = false
+
+  // Call API logout
+  await apiService.logout()
+
   isAuthenticated.value = false
   currentUser.value = null
   currentUserName.value = 'Admin User'
@@ -442,21 +462,177 @@ const handleLogout = () => {
 }
 
 // Handle successful login
-const handleLoginSuccess = (data) => {
+const handleLoginSuccess = async (data) => {
+  console.log('🔵 handleLoginSuccess called with data:', data)
+  console.log('🔵 data.company value:', data.company)
+  console.log('🔵 Type of data.company:', typeof data.company)
+  console.log('🔵 Full data object keys:', Object.keys(data))
+
   isAuthenticated.value = true
   currentUser.value = data.user
   currentUserName.value = data.user.name
+  currentUserPermissions.value = data.permissions
+
+  // Store company data from API
+  if (data.company) {
+    console.log('✅ Company data received:', data.company)
+    companyData.value = data.company
+    companyName.value = data.company.name
+    console.log('✅ Company name set to:', companyName.value)
+
+    // Update company in database via bridge
+    if (kioskBridge) {
+      await updateCompanyInDatabase(data.company)
+    }
+  } else {
+    console.warn('⚠️ No company data in login response!')
+    console.warn('⚠️ Available keys in data:', Object.keys(data))
+  }
+
+  // Update user in database via bridge
+  if (data.user && kioskBridge) {
+    await updateUserInDatabase(data.user)
+  }
+
   showToast(`Welcome back, ${data.user.name}!`, 'success')
 
-  // Load company info and recent logs after login
-  loadCompanyInfo()
+  // Load recent logs after login
   loadRecentLogs()
+
+  // Sync employees from API to local database
+  await syncEmployeesFromAPI()
 }
 
-// Load company information
+// Update company in database via bridge
+const updateCompanyInDatabase = async (company) => {
+  if (!kioskBridge) return
+
+  try {
+    const result = await kioskBridge.updateCompany(JSON.stringify(company))
+    const data = JSON.parse(result)
+    if (data.success) {
+      console.log('Company data synced to database')
+    }
+  } catch (error) {
+    console.error('Error updating company in database:', error)
+  }
+}
+
+// Update user in database via bridge
+const updateUserInDatabase = async (user) => {
+  if (!kioskBridge) return
+
+  try {
+    const result = await kioskBridge.updateCurrentUser(user.email, user.name)
+    const data = JSON.parse(result)
+    if (data.success) {
+      console.log('User data synced to database')
+    }
+  } catch (error) {
+    console.error('Error updating user in database:', error)
+  }
+}
+
+// Check authentication on startup
+const checkAuthentication = async () => {
+  isCheckingAuth.value = true
+
+  // Load tokens from localStorage
+  apiService.loadTokens()
+
+  // Check if tokens exist and are valid
+  if (apiService.isAuthenticated()) {
+    const isValid = await apiService.verifyToken()
+
+    if (isValid) {
+      // Token is valid, restore session
+      const userData = apiService.getUserData()
+      const storedCompanyData = apiService.getCompanyData()
+
+      if (userData) {
+        isAuthenticated.value = true
+        currentUser.value = {
+          id: userData.id || userData.pk,
+          email: userData.email,
+          name: `${userData.first_name} ${userData.last_name}`,
+          firstName: userData.first_name,
+          lastName: userData.last_name
+        }
+        currentUserName.value = currentUser.value.name
+
+        // Restore company data
+        if (storedCompanyData) {
+          companyData.value = storedCompanyData
+          companyName.value = storedCompanyData.name
+        }
+
+        // Restore permissions if available
+        if (userData.permissions) {
+          currentUserPermissions.value = userData.permissions
+        }
+
+        console.log('Session restored from stored tokens')
+      }
+    } else {
+      // Token invalid, try to refresh
+      const refreshed = await apiService.refreshAccessToken()
+      if (refreshed) {
+        await checkAuthentication() // Retry with new token
+        return
+      } else {
+        // Refresh failed, clear tokens
+        apiService.clearTokens()
+      }
+    }
+  }
+
+  isCheckingAuth.value = false
+}
+
+// Sync employees from API to local database
+const syncEmployeesFromAPI = async () => {
+  if (!kioskBridge) {
+    console.warn('Bridge not available, skipping employee sync')
+    return
+  }
+
+  try {
+    showToast('Syncing employees...', 'info')
+
+    // Fetch all employees from API (with higher limit)
+    const result = await apiService.getEmployees({ limit: 1000, is_active: true })
+
+    if (result.success && result.data.length > 0) {
+      // Send employee data to Python bridge for database sync
+      const syncResult = await kioskBridge.syncEmployeesFromAPI(JSON.stringify(result.data))
+      const syncData = JSON.parse(syncResult)
+
+      if (syncData.success) {
+        showToast(`Synced ${syncData.synced_count} employees`, 'success')
+        // Reload recent logs after sync
+        loadRecentLogs()
+      } else {
+        showToast('Employee sync failed', 'error')
+      }
+    }
+  } catch (error) {
+    console.error('Error syncing employees:', error)
+    showToast('Error syncing employees', 'error')
+  }
+}
+
+// Load company information (fallback - now using API data)
 const loadCompanyInfo = async () => {
+  // Company info now comes from /api/auth/user/ endpoint
+  // This function is kept as fallback for local database
   if (!kioskBridge) {
     console.warn('Bridge not available, using default company name')
+    return
+  }
+
+  // Only load from local DB if we don't have company data from API
+  if (companyData.value && companyData.value.name) {
+    companyName.value = companyData.value.name
     return
   }
 
@@ -492,11 +668,28 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- Loading State -->
+  <div v-if="isCheckingAuth" class="min-h-screen bg-gradient-to-br from-sky-50 via-indigo-50 to-fuchsia-50 flex items-center justify-center">
+    <div class="text-center">
+      <svg class="animate-spin h-12 w-12 text-blue-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      <p class="text-slate-600 text-sm">Loading...</p>
+    </div>
+  </div>
+
   <!-- Login View -->
   <LoginView
-    v-if="!isAuthenticated"
+    v-else-if="!isAuthenticated"
     :app-version="appVersion"
     @login-success="handleLoginSuccess"
+  />
+
+  <!-- Employee List View -->
+  <EmployeeList
+    v-else-if="isAuthenticated && showEmployeeList"
+    @close="showEmployeeList = false"
   />
 
   <!-- Main Application -->
@@ -538,9 +731,19 @@ onBeforeUnmount(() => {
           @click.stop
         >
           <button
-            @click="handleSettings"
+            @click="handleEmployeeList"
             class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 transition-colors text-left"
             style="color: #313A46;"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <span class="font-medium">Employee</span>
+          </button>
+          <button
+            @click="handleSettings"
+            class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 transition-colors text-left border-t"
+            style="color: #313A46; border-color: #EEF2F7;"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />

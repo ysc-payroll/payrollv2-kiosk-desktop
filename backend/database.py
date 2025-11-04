@@ -28,31 +28,10 @@ class Database:
         return sqlite3.connect(self.db_path)
 
     def init_schema(self):
-        """Create kiosk_logs table if it doesn't exist."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS kiosk_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                employee_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                timestamp DATETIME NOT NULL,
-                photo_path TEXT,
-                synced BOOLEAN DEFAULT 0
-            )
-        """)
-
-        # Create index for faster queries
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_employee_id ON kiosk_logs(employee_id)
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_synced ON kiosk_logs(synced)
-        """)
-
-        conn.commit()
-        conn.close()
+        """Initialize database schema - tables are created via create_schema.py."""
+        # Schema is managed by create_schema.py
+        # This method kept for compatibility
+        pass
 
     def log_time_entry(self, employee_id, action, photo_path=None):
         """
@@ -162,7 +141,6 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Try new timesheet table first
         cursor.execute("""
             SELECT t.id, t.employee_id, e.employee_code, e.name, t.log_type,
                    t.date || ' ' || t.time as timestamp, t.photo_path, t.is_synced,
@@ -174,19 +152,6 @@ class Database:
         """, (limit,))
 
         rows = cursor.fetchall()
-
-        # If no results from timesheet, fall back to old kiosk_logs table
-        if not rows:
-            cursor.execute("""
-                SELECT id, employee_id, NULL as employee_code, NULL as name,
-                       action, timestamp, photo_path, synced,
-                       'success' as status, NULL as error_message
-                FROM kiosk_logs
-                ORDER BY timestamp DESC
-                LIMIT ?
-            """, (limit,))
-            rows = cursor.fetchall()
-
         conn.close()
         return rows
 
@@ -195,7 +160,6 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Try new timesheet table first
         cursor.execute("""
             SELECT t.id, t.employee_id, e.employee_code, e.name, t.log_type,
                    t.date || ' ' || t.time as timestamp, t.photo_path, t.is_synced,
@@ -207,32 +171,21 @@ class Database:
         """, (date_from, date_to))
 
         rows = cursor.fetchall()
-
-        # If no results from timesheet, fall back to old kiosk_logs table
-        if not rows:
-            cursor.execute("""
-                SELECT id, employee_id, NULL as employee_code, NULL as name,
-                       action, timestamp, photo_path, synced,
-                       'success' as status, NULL as error_message
-                FROM kiosk_logs
-                WHERE DATE(timestamp) >= ? AND DATE(timestamp) <= ?
-                ORDER BY timestamp DESC
-            """, (date_from, date_to))
-            rows = cursor.fetchall()
-
         conn.close()
         return rows
 
     def get_unsynced_logs(self):
-        """Get all logs that haven't been synced (for Phase 3)."""
+        """Get all timesheet logs that haven't been synced."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT id, employee_id, action, timestamp, photo_path
-            FROM kiosk_logs
-            WHERE synced = 0
-            ORDER BY timestamp ASC
+            SELECT t.id, t.employee_id, e.employee_code, e.name, t.log_type,
+                   t.date, t.time, t.photo_path, t.sync_id
+            FROM timesheet t
+            LEFT JOIN employee e ON t.employee_id = e.id
+            WHERE t.is_synced = 0 AND t.status = 'success'
+            ORDER BY t.date ASC, t.time ASC
         """)
 
         rows = cursor.fetchall()
@@ -241,13 +194,13 @@ class Database:
         return rows
 
     def mark_as_synced(self, log_id):
-        """Mark a log entry as synced (for Phase 3)."""
+        """Mark a timesheet entry as synced."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
-            UPDATE kiosk_logs
-            SET synced = 1
+            UPDATE timesheet
+            SET is_synced = 1
             WHERE id = ?
         """, (log_id,))
 

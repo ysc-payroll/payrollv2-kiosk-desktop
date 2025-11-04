@@ -2,7 +2,9 @@
 
 ## Overview
 
-The timekeeper kiosk application uses SQLite with the following normalized schema:
+The timekeeper kiosk application uses SQLite with the following normalized schema.
+
+**Total Tables**: 4 (company, employee, timesheet, users)
 
 ## Tables
 
@@ -125,6 +127,43 @@ id | sync_id                  | employee_id | log_type | date       | time  | is
 
 ---
 
+### 4. Users
+
+Stores the current logged-in user information from the API. **Only one record is allowed** (id must equal 1).
+
+```sql
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    email TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_login DATETIME
+)
+```
+
+**Fields:**
+- `id` - Primary key (must always be 1 - enforced by CHECK constraint)
+- `email` - User email address from API
+- `name` - Full user name
+- `is_active` - Whether user is active (0 = inactive, 1 = active)
+- `created_at` - Record creation timestamp
+- `last_login` - Last login timestamp
+
+**Important Notes:**
+- Only ONE user record can exist in the table (enforced by `CHECK(id = 1)`)
+- No password stored - authentication is handled by the API
+- User data is synced from API after successful login
+- Updated via `updateCurrentUser()` bridge method
+
+**Sample Data:**
+```
+id | email           | name           | is_active | last_login
+1  | zip1@gmail.com  | John Doe       | 1         | 2025-11-04 10:30:00
+```
+
+---
+
 ## Setup Scripts
 
 ### Create Schema
@@ -134,6 +173,19 @@ Creates all tables and indexes:
 ```bash
 python create_schema.py
 ```
+
+### Migrate Schema
+
+Migrates database from old schema to new schema:
+
+```bash
+python migrate_schema.py
+```
+
+This migration:
+- Removes old `kiosk_logs` table
+- Updates `users` table to single-record format without password
+- Preserves existing user data if available
 
 ### Add Status Fields Migration
 
@@ -263,26 +315,6 @@ ORDER BY t.created_at DESC;
 
 ---
 
-## Migration from Old Schema
-
-The old `kiosk_logs` table still exists for backward compatibility:
-
-```sql
--- Old schema (Phase 1)
-CREATE TABLE kiosk_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employee_id TEXT NOT NULL,
-    action TEXT NOT NULL,
-    timestamp DATETIME NOT NULL,
-    photo_path TEXT,
-    synced BOOLEAN DEFAULT 0
-)
-```
-
-To migrate data from old to new schema, employee records must be created first to satisfy foreign key constraints.
-
----
-
 ## Maintenance
 
 ### Vacuum Database
@@ -316,6 +348,18 @@ sqlite3 database/kiosk.db "DELETE FROM timesheet;"
 
 ## Schema Version
 
-**Version**: 1.0
-**Date**: 2025-11-03
+**Version**: 2.0
+**Date**: 2025-11-04
 **Compatible with**: Timekeeper Kiosk v2
+
+## Changelog
+
+### Version 2.0 (2025-11-04)
+- **REMOVED**: `kiosk_logs` table (replaced by `timesheet`)
+- **UPDATED**: `users` table - single record only (id=1), no password storage
+- **CHANGED**: User authentication now via API only
+- All timesheet operations now use `timesheet` table exclusively
+
+### Version 1.0 (2025-11-03)
+- Initial schema with `company`, `employee`, `timesheet` tables
+- Legacy `kiosk_logs` table for backward compatibility

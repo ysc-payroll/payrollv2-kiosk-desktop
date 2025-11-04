@@ -38,6 +38,13 @@ class KioskWindow(QMainWindow):
         # Enable developer tools (F12 to open)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
 
+        # DISABLE CACHE to force reload of JS files during development
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+        from PyQt6.QtWebEngineCore import QWebEngineProfile
+        profile = self.browser.page().profile()
+        profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.NoCache)
+        print("🔄 Cache disabled - JavaScript will reload on every restart")
+
         # Handle feature permission requests (camera/microphone)
         self.browser.page().featurePermissionRequested.connect(self.on_feature_permission_requested)
 
@@ -71,7 +78,7 @@ class KioskWindow(QMainWindow):
 
     def on_console_message(self, level, message, line, source):
         """Print JavaScript console messages to terminal."""
-        print(f"[JS Console] {message} (line {line})")
+        print(f"js: {message}")
 
     def setup_bridge(self):
         """Set up the Python-JavaScript bridge."""
