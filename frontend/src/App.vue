@@ -806,7 +806,7 @@ onBeforeUnmount(() => {
       >
       <!-- Sidebar Toggle Button -->
       <div class="flex items-center justify-between p-4 border-b" style="border-color: rgba(255, 255, 255, 0.2);">
-        <h3 v-show="!sidebarCollapsed" class="font-bold text-white">Features</h3>
+        <h3 v-show="!sidebarCollapsed" class="font-bold text-white"></h3>
         <button
           @click="toggleSidebar"
           class="p-2 rounded-lg transition-colors text-white hover:bg-white hover:bg-opacity-10"
