@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script type="module" src="/@vite/client"></script>
+
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timekeeper Kiosk</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <!-- QWebChannel for PyQt6 communication -->
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script type="module" src="/src/main.js?t=1762235783550"></script>
+  </body>
+</html>

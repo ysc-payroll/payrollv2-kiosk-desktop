@@ -55,10 +55,10 @@ class Database:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            # Look up employee by employee_number to get database ID
+            # Look up employee by employee_number to get database ID (exclude soft-deleted)
             employee_number = int(employee_id.strip())
             cursor.execute("""
-                SELECT id FROM employee WHERE employee_number = ?
+                SELECT id FROM employee WHERE employee_number = ? AND deleted_at IS NULL
             """, (employee_number,))
 
             employee_row = cursor.fetchone()
@@ -107,7 +107,7 @@ class Database:
                 # Try to get employee_id for error logging
                 try:
                     employee_number = int(employee_id.strip())
-                    cursor.execute("SELECT id FROM employee WHERE employee_number = ?", (employee_number,))
+                    cursor.execute("SELECT id FROM employee WHERE employee_number = ? AND deleted_at IS NULL", (employee_number,))
                     employee_row = cursor.fetchone()
                     if employee_row:
                         db_employee_id = employee_row[0]
@@ -206,3 +206,77 @@ class Database:
 
         conn.commit()
         conn.close()
+
+    def get_employees_timekeeper(self):
+        """
+        Get all active employees (not soft-deleted) for timekeeper display.
+
+        Returns:
+            list: List of tuples (backend_id, name, employee_number)
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT backend_id, name, employee_number
+            FROM employee
+            WHERE deleted_at IS NULL
+            ORDER BY name ASC
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def check_employee_has_applications(self, backend_id):
+        """
+        Check if an employee has any overtime, leave, or timesheet records.
+
+        Args:
+            backend_id (int): Employee's backend_id
+
+        Returns:
+            tuple: (has_records: bool, record_types: list)
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        # First get the local employee id
+        cursor.execute("SELECT id FROM employee WHERE backend_id = ?", (backend_id,))
+        employee_row = cursor.fetchone()
+
+        if not employee_row:
+            conn.close()
+            return False, []
+
+        employee_id = employee_row[0]
+        record_types = []
+
+        # Check timesheet records
+        cursor.execute("""
+            SELECT COUNT(*) FROM timesheet WHERE employee_id = ?
+        """, (employee_id,))
+        timesheet_count = cursor.fetchone()[0]
+        if timesheet_count > 0:
+            record_types.append(f"timesheet ({timesheet_count})")
+
+        # TODO: Check overtime applications when the table exists
+        # cursor.execute("""
+        #     SELECT COUNT(*) FROM overtime_application WHERE employee_id = ?
+        # """, (employee_id,))
+        # overtime_count = cursor.fetchone()[0]
+        # if overtime_count > 0:
+        #     record_types.append(f"overtime ({overtime_count})")
+
+        # TODO: Check leave applications when the table exists
+        # cursor.execute("""
+        #     SELECT COUNT(*) FROM leave_application WHERE employee_id = ?
+        # """, (employee_id,))
+        # leave_count = cursor.fetchone()[0]
+        # if leave_count > 0:
+        #     record_types.append(f"leave ({leave_count})")
+
+        conn.close()
+
+        has_records = len(record_types) > 0
+        return has_records, record_types

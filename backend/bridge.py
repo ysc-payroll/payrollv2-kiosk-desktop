@@ -7,15 +7,17 @@ import os
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSlot
+from PyQt6.QtWidgets import QFileDialog
 from database import Database
 
 
 class KioskBridge(QObject):
     """Bridge between Vue.js frontend and Python backend."""
 
-    def __init__(self):
+    def __init__(self, parent=None):
         super().__init__()
         self.db = Database()
+        self.parent = parent  # Store parent widget for file dialogs
 
     @pyqtSlot(str, str, str, result=str)
     def logTimeEntry(self, employee_id, action, photo_base64):
@@ -208,7 +210,7 @@ class KioskBridge(QObject):
             cursor.execute("""
                 SELECT id, backend_id, name, employee_code, employee_number
                 FROM employee
-                WHERE employee_number = ?
+                WHERE employee_number = ? AND deleted_at IS NULL
                 LIMIT 1
             """, (employee_number,))
 
@@ -481,6 +483,177 @@ class KioskBridge(QObject):
                 "error": str(e)
             })
 
+    @pyqtSlot(str, result=str)
+    def syncEmployeesFromAPIWithCleanup(self, employees_json):
+        """
+        Sync employees from API to local database with cleanup (soft-delete removed employees).
+        This method:
+        1. Adds new employees
+        2. Updates existing employees
+        3. Soft-deletes employees not in API (unless they have application records)
+
+        Args:
+            employees_json (str): JSON string containing array of employee data from API
+
+        Returns:
+            str: JSON string with detailed sync result including:
+                - added_count: Number of new employees added
+                - updated_count: Number of existing employees updated
+                - deleted_count: Number of employees soft-deleted
+                - skipped_count: Number of employees skipped (have applications)
+                - skipped_details: List of skipped employees with reasons
+        """
+        import json
+        from datetime import datetime
+
+        try:
+            employees = json.loads(employees_json)
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            added_count = 0
+            updated_count = 0
+            deleted_count = 0
+            skipped_count = 0
+            skipped_details = []
+
+            # Start transaction
+            cursor.execute("BEGIN TRANSACTION")
+
+            # Step 1 & 2: Add new and update existing employees
+            api_backend_ids = []
+
+            for emp in employees:
+                try:
+                    # Extract employee data from API response
+                    # API returns: id, timekeeper_id, name
+                    system_id = emp.get('id')  # Maps to backend_id in database
+                    employee_number = emp.get('timekeeper_id')  # Maps to employee_number in database
+                    full_name = emp.get('name', '')  # Name is already complete
+
+                    # Track API backend IDs
+                    api_backend_ids.append(system_id)
+
+                    # Check if employee already exists
+                    cursor.execute("""
+                        SELECT id, name, employee_number, deleted_at FROM employee WHERE backend_id = ?
+                    """, (system_id,))
+
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        emp_id, current_name, current_number, deleted_at = existing
+
+                        # Check if data changed or if restoring deleted employee
+                        data_changed = (current_name != full_name or current_number != employee_number)
+                        is_deleted = deleted_at is not None
+
+                        if data_changed or is_deleted:
+                            # Update existing employee (and restore if soft-deleted)
+                            cursor.execute("""
+                                UPDATE employee
+                                SET name = ?, employee_number = ?, deleted_at = NULL
+                                WHERE backend_id = ?
+                            """, (full_name, employee_number, system_id))
+                            updated_count += 1
+                        # else: no changes, don't count anything
+                    else:
+                        # Insert new employee
+                        cursor.execute("""
+                            INSERT INTO employee (backend_id, name, employee_number)
+                            VALUES (?, ?, ?)
+                        """, (system_id, full_name, employee_number))
+                        added_count += 1
+
+                except Exception as e:
+                    print(f"Error syncing employee {emp.get('id')}: {e}")
+                    skipped_count += 1
+                    skipped_details.append({
+                        "backend_id": emp.get('id'),
+                        "name": emp.get('name', 'Unknown'),
+                        "reason": f"Error: {str(e)}"
+                    })
+                    continue
+
+            # Step 3: Soft-delete employees not in API list
+            # Find employees that are NOT in the API list and NOT already soft-deleted
+            print(f"API returned {len(api_backend_ids)} employees")
+
+            if api_backend_ids:
+                placeholders = ','.join('?' * len(api_backend_ids))
+                cursor.execute(f"""
+                    SELECT id, backend_id, name
+                    FROM employee
+                    WHERE backend_id NOT IN ({placeholders})
+                      AND deleted_at IS NULL
+                """, api_backend_ids)
+            else:
+                cursor.execute("""
+                    SELECT id, backend_id, name
+                    FROM employee
+                    WHERE deleted_at IS NULL
+                """)
+
+            employees_to_delete = cursor.fetchall()
+            print(f"Found {len(employees_to_delete)} employees to potentially delete")
+
+            for emp_id, backend_id, name in employees_to_delete:
+                print(f"Checking employee for deletion: {name} (backend_id: {backend_id})")
+
+                # Check if employee has application records
+                has_records, record_types = self.db.check_employee_has_applications(backend_id)
+
+                if has_records:
+                    # Skip deletion if employee has records
+                    print(f"  -> Skipped (has records: {record_types})")
+                    skipped_count += 1
+                    skipped_details.append({
+                        "backend_id": backend_id,
+                        "name": name,
+                        "reason": f"Has records: {', '.join(record_types)}"
+                    })
+                else:
+                    # Soft-delete the employee
+                    print(f"  -> Soft-deleting")
+                    cursor.execute("""
+                        UPDATE employee
+                        SET deleted_at = ?
+                        WHERE id = ?
+                    """, (datetime.now().isoformat(), emp_id))
+                    deleted_count += 1
+
+            # Commit transaction
+            conn.commit()
+            conn.close()
+
+            return json.dumps({
+                "success": True,
+                "added_count": added_count,
+                "updated_count": updated_count,
+                "deleted_count": deleted_count,
+                "skipped_count": skipped_count,
+                "skipped_details": skipped_details,
+                "message": f"Sync complete: {added_count} added, {updated_count} updated, {deleted_count} removed"
+            })
+
+        except Exception as e:
+            # Rollback on error
+            try:
+                conn.rollback()
+                conn.close()
+            except:
+                pass
+
+            return json.dumps({
+                "success": False,
+                "added_count": 0,
+                "updated_count": 0,
+                "deleted_count": 0,
+                "skipped_count": 0,
+                "skipped_details": [],
+                "error": str(e)
+            })
+
     @pyqtSlot(str, str, result=str)
     def updateCurrentUser(self, email, name):
         """
@@ -532,5 +705,52 @@ class KioskBridge(QObject):
         except Exception as e:
             return json.dumps({
                 "success": False,
+                "error": str(e)
+            })
+
+    @pyqtSlot(str, str, result=str)
+    def saveFileDialog(self, content, default_filename):
+        """
+        Show a save file dialog and save content to the selected file.
+
+        Args:
+            content (str): Content to save (CSV data, JSON, etc.)
+            default_filename (str): Default filename to suggest
+
+        Returns:
+            str: JSON string with result
+        """
+        import json
+
+        try:
+            # Show save file dialog
+            file_path, _ = QFileDialog.getSaveFileName(
+                self.parent,
+                "Save File",
+                default_filename,
+                "CSV Files (*.csv);;All Files (*)"
+            )
+
+            if file_path:
+                # Write content to file
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+
+                return json.dumps({
+                    "success": True,
+                    "message": f"File saved successfully to {file_path}",
+                    "file_path": file_path
+                })
+            else:
+                return json.dumps({
+                    "success": False,
+                    "message": "Save cancelled by user",
+                    "cancelled": True
+                })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error saving file: {str(e)}",
                 "error": str(e)
             })

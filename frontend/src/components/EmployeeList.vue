@@ -1,27 +1,27 @@
 <template>
-  <div class="min-h-screen bg-gradient-to-br from-sky-50 via-indigo-50 to-fuchsia-50 p-6">
-    <div class="max-w-7xl mx-auto">
-      <!-- Header -->
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="text-3xl font-bold text-slate-900">Employee List</h1>
-          <p class="text-sm text-slate-600 mt-1">
-            {{ totalRecords }} employee{{ totalRecords !== 1 ? 's' : '' }} total
-          </p>
-        </div>
-        <button
-          @click="$emit('close')"
-          class="inline-flex items-center gap-2 rounded-xl bg-slate-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-600"
-        >
-          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-          Close
-        </button>
+  <div class="employee-list-view h-full overflow-y-auto p-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-3xl font-bold text-slate-900">Employee List</h1>
+        <p class="text-sm text-slate-600 mt-1">
+          {{ totalRecords }} employee{{ totalRecords !== 1 ? 's' : '' }} total
+        </p>
       </div>
+      <button
+        @click="showRefreshConfirmation"
+        :disabled="isRefreshing || isLoading"
+        class="inline-flex items-center gap-2 rounded-xl bg-green-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <svg class="h-5 w-5" :class="{ 'animate-spin': isRefreshing }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        {{ isRefreshing ? 'Refreshing...' : 'Refresh from Live' }}
+      </button>
+    </div>
 
-      <!-- Search Section -->
-      <div class="relative isolate overflow-hidden rounded-2xl bg-white/70 shadow-xl ring-1 ring-black/5 backdrop-blur p-6 mb-6">
+    <!-- Search Section -->
+    <div class="relative isolate overflow-hidden rounded-2xl bg-white/70 shadow-xl ring-1 ring-black/5 backdrop-blur p-6 mb-6">
         <div class="flex gap-4">
           <div class="flex-1">
             <input
@@ -50,11 +50,11 @@
           >
             Clear
           </button>
-        </div>
       </div>
+    </div>
 
-      <!-- Employee Table -->
-      <div class="relative isolate overflow-hidden rounded-2xl bg-white/70 shadow-xl ring-1 ring-black/5 backdrop-blur">
+    <!-- Employee Table -->
+    <div class="relative isolate overflow-hidden rounded-2xl bg-white/70 shadow-xl ring-1 ring-black/5 backdrop-blur">
         <!-- Loading State -->
         <div v-if="isLoading" class="p-12 text-center">
           <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-500 border-r-transparent"></div>
@@ -137,7 +137,96 @@
                 </svg>
               </button>
             </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirmation Dialog -->
+    <div
+      v-if="showConfirmDialog"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      @click.self="closeConfirmDialog"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <!-- Header -->
+        <div class="p-6 border-b border-slate-200">
+          <h2 class="text-xl font-bold text-slate-900">Confirm Sync</h2>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6">
+          <p class="text-slate-700">
+            This will sync employees from the live system and mark removed employees as inactive.
+          </p>
+          <p class="text-slate-600 text-sm mt-3">
+            Employees with existing applications will not be removed.
+          </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-6 border-t border-slate-200 flex justify-end gap-3">
+          <button
+            @click="closeConfirmDialog"
+            class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition"
+          >
+            Cancel
+          </button>
+          <button
+            @click="handleRefreshFromLive"
+            class="px-4 py-2 text-sm font-medium text-white bg-green-500 rounded-lg hover:bg-green-600 transition"
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync Result Dialog -->
+    <div
+      v-if="showResultDialog"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      @click.self="closeResultDialog"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <!-- Header -->
+        <div class="p-6 border-b border-slate-200 flex items-center justify-between">
+          <h2 class="text-xl font-bold text-slate-900">Sync Results</h2>
+          <button
+            @click="closeResultDialog"
+            class="text-slate-400 hover:text-slate-600 transition"
+          >
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <span class="text-sm font-medium text-slate-700">Added</span>
+              <span class="text-lg font-bold text-green-600">{{ syncResult.added_count }}</span>
+            </div>
+            <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+              <span class="text-sm font-medium text-slate-700">Updated</span>
+              <span class="text-lg font-bold text-blue-600">{{ syncResult.updated_count }}</span>
+            </div>
+            <div class="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+              <span class="text-sm font-medium text-slate-700">Removed</span>
+              <span class="text-lg font-bold text-red-600">{{ syncResult.deleted_count }}</span>
+            </div>
           </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-6 border-t border-slate-200 flex justify-end">
+          <button
+            @click="closeResultDialog"
+            class="px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -148,16 +237,25 @@
 import { ref, computed, onMounted } from 'vue'
 import apiService from '../services/api.js'
 
-// Emits
-const emit = defineEmits(['close'])
-
 // State
 const allEmployees = ref([])          // All employees from API
 const filteredEmployees = ref([])     // After search filter
 const searchQuery = ref('')
 const currentPage = ref(1)
 const isLoading = ref(false)
+const isRefreshing = ref(false)
 const limit = 20
+
+// Dialog states
+const showConfirmDialog = ref(false)
+const showResultDialog = ref(false)
+const syncResult = ref({
+  added_count: 0,
+  updated_count: 0,
+  deleted_count: 0,
+  skipped_count: 0,
+  skipped_details: []
+})
 
 // Computed properties
 const totalRecords = computed(() => filteredEmployees.value.length)
@@ -238,6 +336,50 @@ const nextPage = () => {
   }
 }
 
+// Refresh from Live handlers
+const showRefreshConfirmation = () => {
+  showConfirmDialog.value = true
+}
+
+const closeConfirmDialog = () => {
+  showConfirmDialog.value = false
+}
+
+const closeResultDialog = () => {
+  showResultDialog.value = false
+}
+
+const handleRefreshFromLive = async () => {
+  // Close confirmation dialog
+  closeConfirmDialog()
+
+  // Start refreshing
+  isRefreshing.value = true
+
+  try {
+    const result = await apiService.syncEmployeesWithCleanup()
+
+    if (result.success) {
+      // Store sync results
+      syncResult.value = result.data
+
+      // Reload employee list
+      await fetchEmployees()
+
+      // Show result dialog
+      showResultDialog.value = true
+    } else {
+      console.error('Failed to sync employees:', result.message)
+      alert(`Sync failed: ${result.message}`)
+    }
+  } catch (error) {
+    console.error('Error syncing employees:', error)
+    alert(`Sync error: ${error.message}`)
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
 // Load employees on mount
 onMounted(() => {
   fetchEmployees()
@@ -245,6 +387,32 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.employee-list-view {
+  background: linear-gradient(to bottom right,
+    rgb(240 249 255),
+    rgb(224 231 255),
+    rgb(250 232 255)
+  );
+}
+
+/* Custom scrollbar for view */
+.employee-list-view::-webkit-scrollbar {
+  width: 8px;
+}
+
+.employee-list-view::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.employee-list-view::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+
+.employee-list-view::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
 /* Custom scrollbar for table */
 .overflow-x-auto::-webkit-scrollbar {
   height: 8px;

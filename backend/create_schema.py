@@ -42,16 +42,20 @@ def create_new_schema():
             name TEXT NOT NULL,
             employee_code TEXT,
             employee_number INTEGER,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            deleted_at DATETIME
         )
     """)
 
-    # Create index on backend_id and employee_code
+    # Create index on backend_id, employee_code, and deleted_at
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_employee_backend_id ON employee(backend_id)
     """)
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_employee_code ON employee(employee_code)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_employee_deleted_at ON employee(deleted_at)
     """)
 
     # Create Timesheet table

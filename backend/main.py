@@ -19,6 +19,7 @@ class KioskWindow(QMainWindow):
         super().__init__()
         self.init_ui()
         self.setup_bridge()
+        self.create_menu_bar()
 
     def init_ui(self):
         """Initialize the UI components."""
@@ -82,7 +83,7 @@ class KioskWindow(QMainWindow):
 
     def setup_bridge(self):
         """Set up the Python-JavaScript bridge."""
-        self.bridge = KioskBridge()
+        self.bridge = KioskBridge(parent=self)
         self.channel.registerObject("kioskBridge", self.bridge)
 
     def load_frontend(self):
@@ -102,12 +103,79 @@ class KioskWindow(QMainWindow):
             print(f"Loading dev server from: {dev_url}")
             print("Make sure Vite dev server is running: cd frontend && npm run dev")
 
+    def create_menu_bar(self):
+        """Create menu bar with File, View, Window, and Help menus."""
+        menubar = self.menuBar()
+
+        # File menu
+        file_menu = menubar.addMenu("&File")
+        exit_action = file_menu.addAction("E&xit")
+        exit_action.triggered.connect(self.close)
+
+        # View menu
+        view_menu = menubar.addMenu("&View")
+
+        # Developer tools
+        dev_tools_action = view_menu.addAction("&Developer Tools")
+        dev_tools_action.setShortcut("F12")
+        dev_tools_action.triggered.connect(self.open_dev_tools)
+
+        # Window menu
+        window_menu = menubar.addMenu("&Window")
+
+        # Toggle fullscreen
+        fullscreen_action = window_menu.addAction("&Fullscreen")
+        fullscreen_action.setCheckable(True)
+        fullscreen_action.setChecked(True)
+        fullscreen_action.triggered.connect(self.toggle_fullscreen)
+
+        # Help menu
+        help_menu = menubar.addMenu("&Help")
+
+        # About
+        about_action = help_menu.addAction("&About")
+        about_action.triggered.connect(self.show_about)
+
+    def toggle_fullscreen(self):
+        """Toggle fullscreen mode."""
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def open_dev_tools(self):
+        """Open developer tools in a separate window."""
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+
+        # Create dev tools window if it doesn't exist
+        if not hasattr(self, 'dev_tools_view'):
+            self.dev_tools_view = QWebEngineView()
+            self.dev_tools_view.setWindowTitle("Developer Tools - Timekeeper Kiosk")
+            self.dev_tools_view.resize(1024, 768)
+
+        # Attach dev tools to main page
+        self.browser.page().setDevToolsPage(self.dev_tools_view.page())
+        self.dev_tools_view.show()
+        print("Developer tools opened")
+
+    def show_about(self):
+        """Show about dialog."""
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.about(
+            self,
+            "About Timekeeper Kiosk",
+            "Timekeeper Payroll v2.0\nDesktop Application\n\nBuilt with PyQt6 and Vue.js"
+        )
+
     def keyPressEvent(self, event):
         """Handle key press events. ESC key exits fullscreen for development."""
         from PyQt6.QtCore import Qt
 
+        # F12 opens developer tools
+        if event.key() == Qt.Key.Key_F12:
+            self.open_dev_tools()
         # Allow ESC to exit fullscreen during development
-        if event.key() == Qt.Key.Key_Escape:
+        elif event.key() == Qt.Key.Key_Escape:
             if self.isFullScreen():
                 self.showNormal()
             else:

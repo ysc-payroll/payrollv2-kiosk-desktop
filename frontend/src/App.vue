@@ -5,6 +5,13 @@ import NumericKeypad from './components/NumericKeypad.vue'
 import ToastNotification from './components/ToastNotification.vue'
 import LoginView from './components/LoginView.vue'
 import EmployeeList from './components/EmployeeList.vue'
+import OvertimeView from './components/OvertimeView.vue'
+import LeaveView from './components/LeaveView.vue'
+import HolidayView from './components/HolidayView.vue'
+import RestdayView from './components/RestdayView.vue'
+import UndertimeView from './components/UndertimeView.vue'
+import OfficialBusinessView from './components/OfficialBusinessView.vue'
+import TimelogsView from './components/TimelogsView.vue'
 import apiService from './services/api.js'
 
 // Component refs
@@ -75,6 +82,7 @@ onMounted(async () => {
   if (window.qt && window.qt.webChannelTransport) {
     new window.QWebChannel(window.qt.webChannelTransport, (channel) => {
       kioskBridge = channel.objects.kioskBridge
+      window.kioskBridge = kioskBridge // Expose globally for API service
       console.log('PyQt bridge connected')
 
       // Only load data if authenticated
@@ -311,9 +319,38 @@ watch([dateFrom, dateTo], () => {
   loadRecentLogs()
 })
 
-// Feature button handlers (placeholders)
-const handleFeatureClick = (featureName) => {
-  showToast(`${featureName} - Coming in Phase 2`, 'info')
+// Feature button handlers - Navigation
+const handleOvertimeClick = () => {
+  currentView.value = 'overtime'
+}
+
+const handleLeaveClick = () => {
+  currentView.value = 'leave'
+}
+
+const handleHolidayClick = () => {
+  currentView.value = 'holiday'
+}
+
+const handleRestdayClick = () => {
+  currentView.value = 'restday'
+}
+
+const handleUndertimeClick = () => {
+  currentView.value = 'undertime'
+}
+
+const handleOfficialBusinessClick = () => {
+  currentView.value = 'officialbusiness'
+}
+
+const handleTimelogsClick = () => {
+  currentView.value = 'timelogs'
+}
+
+// Return to kiosk/home view
+const handleHomeClick = () => {
+  currentView.value = 'kiosk'
 }
 
 // Format timestamp for display
@@ -432,15 +469,15 @@ const currentUser = ref(null)
 const currentUserPermissions = ref(null)
 const isCheckingAuth = ref(true) // Loading state for initial auth check
 
-// View states
-const showEmployeeList = ref(false)
+// View states - SPA navigation
+const currentView = ref('kiosk') // 'kiosk' | 'employee' | 'overtime' | 'leave' | 'holiday' | 'restday' | 'undertime' | 'officialbusiness' | 'timelogs'
 
 const toggleUserDropdown = () => {
   userDropdownOpen.value = !userDropdownOpen.value
 }
 
 const handleEmployeeList = () => {
-  showEmployeeList.value = true
+  currentView.value = 'employee'
   userDropdownOpen.value = false
 }
 
@@ -686,28 +723,22 @@ onBeforeUnmount(() => {
     @login-success="handleLoginSuccess"
   />
 
-  <!-- Employee List View -->
-  <EmployeeList
-    v-else-if="isAuthenticated && showEmployeeList"
-    @close="showEmployeeList = false"
-  />
-
-  <!-- Main Application -->
+  <!-- Main Application with Sidebar/Topnav -->
   <div v-else class="kiosk-app h-screen flex flex-col overflow-hidden" style="background-color: #EEF2F7;">
 
     <!-- TOP NAVIGATION BAR -->
     <div class="topnav flex items-center justify-between px-4 shadow-md" style="height: 64px; background-color: #3073F1;">
-      <!-- Logo Placeholder -->
-      <div class="flex items-center gap-3">
+      <!-- Logo / Home Button -->
+      <button @click="handleHomeClick" class="flex items-center gap-3 hover:opacity-80 transition-opacity" title="Go to Home">
         <div class="logo-placeholder flex items-center justify-center rounded-lg" style="width: 48px; height: 48px; background-color: rgba(255, 255, 255, 0.15);">
           <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
           </svg>
         </div>
         <div class="text-white">
           <h1 class="text-xl font-bold">{{ companyName }}</h1>
         </div>
-      </div>
+      </button>
 
       <!-- Right side - User Menu -->
       <div class="flex items-center gap-3 relative">
@@ -791,13 +822,35 @@ onBeforeUnmount(() => {
 
       <!-- Sidebar Buttons -->
       <div class="flex-1 overflow-y-auto p-3 space-y-2">
+        <!-- Timekeeper Button -->
         <button
-          @click="handleFeatureClick('Overtime')"
-          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          style="background-color: rgba(255, 255, 255, 0.15); color: white;"
-          @mouseover="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)'"
-          @mouseout="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)'"
+          @click="handleHomeClick"
+          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all"
+          :class="[
+            sidebarCollapsed ? 'justify-center' : '',
+            currentView === 'kiosk' ? 'bg-white text-blue-600 shadow-lg' : ''
+          ]"
+          :style="currentView === 'kiosk' ? '' : 'background-color: rgba(255, 255, 255, 0.15); color: white;'"
+          @mouseover="currentView !== 'kiosk' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)' : ''"
+          @mouseout="currentView !== 'kiosk' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)' : ''"
+        >
+          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <span v-show="!sidebarCollapsed" class="font-semibold">Timekeeper</span>
+        </button>
+
+        <!-- Overtime Button -->
+        <button
+          @click="handleOvertimeClick"
+          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all"
+          :class="[
+            sidebarCollapsed ? 'justify-center' : '',
+            currentView === 'overtime' ? 'bg-white text-blue-600 shadow-lg' : ''
+          ]"
+          :style="currentView === 'overtime' ? '' : 'background-color: rgba(255, 255, 255, 0.15); color: white;'"
+          @mouseover="currentView !== 'overtime' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)' : ''"
+          @mouseout="currentView !== 'overtime' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)' : ''"
         >
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -805,13 +858,17 @@ onBeforeUnmount(() => {
           <span v-show="!sidebarCollapsed" class="font-semibold">Overtime</span>
         </button>
 
+        <!-- Leave Button -->
         <button
-          @click="handleFeatureClick('Leave')"
-          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          style="background-color: rgba(255, 255, 255, 0.15); color: white;"
-          @mouseover="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)'"
-          @mouseout="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)'"
+          @click="handleLeaveClick"
+          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all"
+          :class="[
+            sidebarCollapsed ? 'justify-center' : '',
+            currentView === 'leave' ? 'bg-white text-blue-600 shadow-lg' : ''
+          ]"
+          :style="currentView === 'leave' ? '' : 'background-color: rgba(255, 255, 255, 0.15); color: white;'"
+          @mouseover="currentView !== 'leave' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)' : ''"
+          @mouseout="currentView !== 'leave' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)' : ''"
         >
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -819,13 +876,17 @@ onBeforeUnmount(() => {
           <span v-show="!sidebarCollapsed" class="font-semibold">Leave</span>
         </button>
 
+        <!-- Holiday Button -->
         <button
-          @click="handleFeatureClick('Holiday')"
-          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          style="background-color: rgba(255, 255, 255, 0.15); color: white;"
-          @mouseover="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)'"
-          @mouseout="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)'"
+          @click="handleHolidayClick"
+          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all"
+          :class="[
+            sidebarCollapsed ? 'justify-center' : '',
+            currentView === 'holiday' ? 'bg-white text-blue-600 shadow-lg' : ''
+          ]"
+          :style="currentView === 'holiday' ? '' : 'background-color: rgba(255, 255, 255, 0.15); color: white;'"
+          @mouseover="currentView !== 'holiday' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)' : ''"
+          @mouseout="currentView !== 'holiday' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)' : ''"
         >
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
@@ -833,13 +894,17 @@ onBeforeUnmount(() => {
           <span v-show="!sidebarCollapsed" class="font-semibold">Holiday</span>
         </button>
 
+        <!-- Restday Button -->
         <button
-          @click="handleFeatureClick('Restday')"
-          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          style="background-color: rgba(255, 255, 255, 0.15); color: white;"
-          @mouseover="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)'"
-          @mouseout="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)'"
+          @click="handleRestdayClick"
+          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all"
+          :class="[
+            sidebarCollapsed ? 'justify-center' : '',
+            currentView === 'restday' ? 'bg-white text-blue-600 shadow-lg' : ''
+          ]"
+          :style="currentView === 'restday' ? '' : 'background-color: rgba(255, 255, 255, 0.15); color: white;'"
+          @mouseover="currentView !== 'restday' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)' : ''"
+          @mouseout="currentView !== 'restday' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)' : ''"
         >
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
@@ -847,13 +912,17 @@ onBeforeUnmount(() => {
           <span v-show="!sidebarCollapsed" class="font-semibold">Restday</span>
         </button>
 
+        <!-- Undertime Button -->
         <button
-          @click="handleFeatureClick('Undertime')"
-          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          style="background-color: rgba(255, 255, 255, 0.15); color: white;"
-          @mouseover="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)'"
-          @mouseout="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)'"
+          @click="handleUndertimeClick"
+          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all"
+          :class="[
+            sidebarCollapsed ? 'justify-center' : '',
+            currentView === 'undertime' ? 'bg-white text-blue-600 shadow-lg' : ''
+          ]"
+          :style="currentView === 'undertime' ? '' : 'background-color: rgba(255, 255, 255, 0.15); color: white;'"
+          @mouseover="currentView !== 'undertime' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)' : ''"
+          @mouseout="currentView !== 'undertime' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)' : ''"
         >
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -861,33 +930,41 @@ onBeforeUnmount(() => {
           <span v-show="!sidebarCollapsed" class="font-semibold">Undertime</span>
         </button>
 
-        <button
-          @click="handleFeatureClick('Official Business')"
-          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          style="background-color: rgba(255, 255, 255, 0.15); color: white;"
-          @mouseover="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)'"
-          @mouseout="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)'"
+        <!-- Official Business Button - HIDDEN -->
+        <!-- <button
+          @click="handleOfficialBusinessClick"
+          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all"
+          :class="[
+            sidebarCollapsed ? 'justify-center' : '',
+            currentView === 'officialbusiness' ? 'bg-white text-blue-600 shadow-lg' : ''
+          ]"
+          :style="currentView === 'officialbusiness' ? '' : 'background-color: rgba(255, 255, 255, 0.15); color: white;'"
+          @mouseover="currentView !== 'officialbusiness' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)' : ''"
+          @mouseout="currentView !== 'officialbusiness' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)' : ''"
         >
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
           <span v-show="!sidebarCollapsed" class="font-semibold">Official Business</span>
-        </button>
+        </button> -->
 
-        <button
-          @click="handleFeatureClick('Timelogs')"
-          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          style="background-color: rgba(255, 255, 255, 0.15); color: white;"
-          @mouseover="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)'"
-          @mouseout="$event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)'"
+        <!-- Timelogs Button - HIDDEN -->
+        <!-- <button
+          @click="handleTimelogsClick"
+          class="w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all"
+          :class="[
+            sidebarCollapsed ? 'justify-center' : '',
+            currentView === 'timelogs' ? 'bg-white text-blue-600 shadow-lg' : ''
+          ]"
+          :style="currentView === 'timelogs' ? '' : 'background-color: rgba(255, 255, 255, 0.15); color: white;'"
+          @mouseover="currentView !== 'timelogs' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.25)' : ''"
+          @mouseout="currentView !== 'timelogs' ? $event.currentTarget.style.backgroundColor='rgba(255, 255, 255, 0.15)' : ''"
         >
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           <span v-show="!sidebarCollapsed" class="font-semibold">Timelogs</span>
-        </button>
+        </button> -->
       </div>
 
       <!-- Version Display at Bottom -->
@@ -901,8 +978,11 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- MAIN CONTENT - Split into 2 columns -->
-    <div class="flex-1 grid grid-cols-2 gap-4" style="min-height: 0">
+    <!-- MAIN CONTENT AREA - Dynamic view switching -->
+    <div class="flex-1 overflow-hidden" style="min-height: 0">
+
+      <!-- Kiosk View (Camera + Keypad + Logs) -->
+      <div v-if="currentView === 'kiosk'" class="h-full grid grid-cols-2 gap-4">
 
       <!-- LEFT: Camera and Numpad -->
       <div class="left-section flex flex-col gap-3 h-full">
@@ -1130,8 +1210,40 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+      </div>
+      <!-- End of Kiosk View -->
+
+      <!-- Employee List View -->
+      <EmployeeList v-else-if="currentView === 'employee'" />
+
+      <!-- Overtime View -->
+      <OvertimeView v-else-if="currentView === 'overtime'" />
+
+      <!-- Leave View -->
+      <LeaveView v-else-if="currentView === 'leave'" />
+
+      <!-- Holiday View -->
+      <HolidayView v-else-if="currentView === 'holiday'" />
+
+      <!-- Restday View -->
+      <RestdayView v-else-if="currentView === 'restday'" />
+
+      <!-- Undertime View -->
+      <UndertimeView v-else-if="currentView === 'undertime'" />
+
+      <!-- Official Business View -->
+      <OfficialBusinessView v-else-if="currentView === 'officialbusiness'" />
+
+      <!-- Timelogs View -->
+      <TimelogsView v-else-if="currentView === 'timelogs'" />
+
+      <!-- Placeholder for unknown views -->
+      <div v-else class="h-full flex items-center justify-center bg-white/50">
+        <p class="text-slate-600">View not found: {{ currentView }}</p>
+      </div>
+
     </div>
-    <!-- End of MAIN LAYOUT -->
+    <!-- End of MAIN CONTENT AREA -->
 
     </div>
     <!-- End of flex wrapper -->
