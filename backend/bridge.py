@@ -118,18 +118,23 @@ class KioskBridge(QObject):
             # Convert to list of dictionaries
             logs_list = []
             for log in logs:
-                log_id, emp_id, emp_code, emp_name, action, timestamp, photo_path, synced, status, error_message = log
+                (log_id, emp_id, emp_code, emp_number, emp_name, emp_backend_id, action, timestamp, photo_path,
+                 backend_timesheet_id, status, error_message, sync_error_message) = log
                 logs_list.append({
                     "id": log_id,
                     "employee_id": emp_id,
                     "employee_code": emp_code,
+                    "employee_number": emp_number,
                     "employee_name": emp_name,
+                    "employee_backend_id": emp_backend_id,  # Backend employee ID for API calls
                     "action": action,
                     "timestamp": timestamp,
                     "photo_path": photo_path,
-                    "synced": bool(synced),
+                    "backend_timesheet_id": backend_timesheet_id,
+                    "synced": backend_timesheet_id is not None,  # Derived from backend_timesheet_id
                     "status": status,
-                    "error_message": error_message
+                    "error_message": error_message,
+                    "sync_error_message": sync_error_message
                 })
 
             return json.dumps({
@@ -164,18 +169,23 @@ class KioskBridge(QObject):
             # Convert to list of dictionaries
             logs_list = []
             for log in logs:
-                log_id, emp_id, emp_code, emp_name, action, timestamp, photo_path, synced, status, error_message = log
+                (log_id, emp_id, emp_code, emp_number, emp_name, emp_backend_id, action, timestamp, photo_path,
+                 backend_timesheet_id, status, error_message, sync_error_message) = log
                 logs_list.append({
                     "id": log_id,
                     "employee_id": emp_id,
                     "employee_code": emp_code,
+                    "employee_number": emp_number,
                     "employee_name": emp_name,
+                    "employee_backend_id": emp_backend_id,  # Backend employee ID for API calls
                     "action": action,
                     "timestamp": timestamp,
                     "photo_path": photo_path,
-                    "synced": bool(synced),
+                    "backend_timesheet_id": backend_timesheet_id,
+                    "synced": backend_timesheet_id is not None,  # Derived from backend_timesheet_id
                     "status": status,
-                    "error_message": error_message
+                    "error_message": error_message,
+                    "sync_error_message": sync_error_message
                 })
 
             return json.dumps({
@@ -188,6 +198,56 @@ class KioskBridge(QObject):
                 "success": False,
                 "logs": [],
                 "error": str(e)
+            })
+
+    @pyqtSlot(int, result=str)
+    @pyqtSlot(result=str)
+    def getAllEmployeesFromDatabase(self):
+        """
+        Get all active employees from local database.
+
+        Returns:
+            str: JSON string with array of employee data
+        """
+        import json
+
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT id, backend_id, name, employee_code, employee_number,
+                       has_face_registration, face_registered_at
+                FROM employee
+                WHERE deleted_at IS NULL
+                ORDER BY name ASC
+            """)
+
+            rows = cursor.fetchall()
+            conn.close()
+
+            employees = []
+            for row in rows:
+                employee_id, backend_id, name, emp_code, emp_number, has_face_reg, face_reg_at = row
+                employees.append({
+                    "id": backend_id,  # Use backend_id as id for compatibility with frontend
+                    "name": name,
+                    "employee_code": emp_code,
+                    "timekeeper_id": emp_number,
+                    "has_face_registration": bool(has_face_reg),
+                    "face_registered_at": face_reg_at
+                })
+
+            return json.dumps({
+                "success": True,
+                "data": employees
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+                "data": []
             })
 
     @pyqtSlot(int, result=str)
@@ -424,18 +484,24 @@ class KioskBridge(QObject):
             for emp in employees:
                 try:
                     # Extract employee data from API response
-                    system_id = emp.get('system_id')
-                    first_name = emp.get('first_name', '')
-                    last_name = emp.get('last_name', '')
-                    middle_name = emp.get('middle_name', '')
+                    # Try different field names for backend ID
+                    system_id = emp.get('id') or emp.get('system_id')
 
-                    # Build full name
-                    full_name = f"{first_name} {middle_name} {last_name}".strip()
+                    # Try different field names for employee number
+                    employee_number = emp.get('timekeeper_id') or emp.get('system_id') or emp.get('employee_number')
+
+                    # Try to get name directly, or build it from first/last/middle name
+                    full_name = emp.get('name', '').strip()
+
                     if not full_name:
-                        full_name = f"{first_name} {last_name}".strip()
+                        # Fallback: build from individual name fields
+                        first_name = emp.get('first_name', '')
+                        last_name = emp.get('last_name', '')
+                        middle_name = emp.get('middle_name', '')
 
-                    # Use system_id as employee_number
-                    employee_number = system_id
+                        full_name = f"{first_name} {middle_name} {last_name}".strip()
+                        if not full_name:
+                            full_name = f"{first_name} {last_name}".strip()
 
                     # Check if employee already exists
                     cursor.execute("""
@@ -753,4 +819,464 @@ class KioskBridge(QObject):
                 "success": False,
                 "message": f"Error saving file: {str(e)}",
                 "error": str(e)
+            })
+
+    @pyqtSlot(int, str, result=str)
+    def registerFaceEncoding(self, employee_id, photo_base64):
+        """
+        Register face encoding for an employee from a photo.
+
+        Args:
+            employee_id (int): Database ID of employee
+            photo_base64 (str): Base64 encoded photo (data:image/png;base64,...)
+
+        Returns:
+            str: JSON string with result
+        """
+        import json
+        import numpy as np
+
+        try:
+            # Import face_recognition library
+            import face_recognition
+        except ImportError:
+            return json.dumps({
+                "success": False,
+                "message": "Face recognition library not installed. Run: pip install face_recognition"
+            })
+
+        try:
+            # Remove data URL prefix
+            if "base64," in photo_base64:
+                photo_base64 = photo_base64.split("base64,")[1]
+
+            # Decode base64
+            photo_bytes = base64.b64decode(photo_base64)
+
+            # Save photo to faces directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            faces_dir = Path("database/faces")
+            faces_dir.mkdir(parents=True, exist_ok=True)
+
+            photo_filename = f"employee_{employee_id}_{timestamp}.png"
+            photo_path = faces_dir / photo_filename
+
+            with open(photo_path, "wb") as f:
+                f.write(photo_bytes)
+
+            # Load image and detect faces
+            image = face_recognition.load_image_file(str(photo_path))
+            face_encodings = face_recognition.face_encodings(image)
+
+            if len(face_encodings) == 0:
+                # Delete the saved photo since no face was detected
+                os.remove(photo_path)
+                return json.dumps({
+                    "success": False,
+                    "message": "No face detected in the photo. Please try again with a clear face photo."
+                })
+
+            if len(face_encodings) > 1:
+                # Delete the saved photo since multiple faces were detected
+                os.remove(photo_path)
+                return json.dumps({
+                    "success": False,
+                    "message": "Multiple faces detected. Please ensure only one face is visible in the photo."
+                })
+
+            # Get the face encoding (first and only one)
+            face_encoding = face_encodings[0]
+
+            # Convert numpy array to list and then to JSON
+            face_encoding_json = json.dumps(face_encoding.tolist())
+
+            # Save to database
+            success, message = self.db.save_face_encoding(
+                employee_id,
+                face_encoding_json,
+                str(photo_path)
+            )
+
+            if success:
+                return json.dumps({
+                    "success": True,
+                    "message": "Face registered successfully!",
+                    "photo_path": str(photo_path)
+                })
+            else:
+                # Delete photo if database save failed
+                os.remove(photo_path)
+                return json.dumps({
+                    "success": False,
+                    "message": message
+                })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error registering face: {str(e)}"
+            })
+
+    @pyqtSlot(str, result=str)
+    def recognizeFace(self, photo_base64):
+        """
+        Recognize face from photo and match against all registered employees.
+
+        Args:
+            photo_base64 (str): Base64 encoded photo
+
+        Returns:
+            str: JSON string with matched employee or null
+        """
+        import json
+        import numpy as np
+
+        try:
+            # Import face_recognition library
+            import face_recognition
+        except ImportError:
+            return json.dumps({
+                "success": False,
+                "message": "Face recognition library not installed"
+            })
+
+        try:
+            # Remove data URL prefix
+            if "base64," in photo_base64:
+                photo_base64 = photo_base64.split("base64,")[1]
+
+            # Decode base64
+            photo_bytes = base64.b64decode(photo_base64)
+
+            # Save temporary photo
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            temp_dir = Path("database/temp")
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            temp_photo_path = temp_dir / f"recognize_{timestamp}.png"
+
+            with open(temp_photo_path, "wb") as f:
+                f.write(photo_bytes)
+
+            # Load image and detect faces
+            image = face_recognition.load_image_file(str(temp_photo_path))
+            face_encodings = face_recognition.face_encodings(image)
+
+            # Clean up temp photo
+            try:
+                os.remove(temp_photo_path)
+            except:
+                pass
+
+            if len(face_encodings) == 0:
+                return json.dumps({
+                    "success": True,
+                    "employee": None,
+                    "message": "No face detected in the photo"
+                })
+
+            if len(face_encodings) > 1:
+                return json.dumps({
+                    "success": True,
+                    "employee": None,
+                    "message": "Multiple faces detected"
+                })
+
+            # Get the face encoding to match
+            unknown_face_encoding = face_encodings[0]
+
+            # Get all registered face encodings from database
+            registered_employees = self.db.get_all_face_encodings()
+
+            if not registered_employees:
+                return json.dumps({
+                    "success": True,
+                    "employee": None,
+                    "message": "No registered faces in the system"
+                })
+
+            # Compare against all registered faces
+            best_match = None
+            best_distance = 1.0  # Lower is better, 0.0 is perfect match
+
+            for emp_id, name, face_encoding_json, employee_number in registered_employees:
+                # Parse stored encoding
+                stored_encoding = np.array(json.loads(face_encoding_json))
+
+                # Calculate face distance (lower = more similar)
+                face_distance = face_recognition.face_distance([stored_encoding], unknown_face_encoding)[0]
+
+                # Check if this is the best match so far
+                if face_distance < best_distance:
+                    best_distance = face_distance
+                    best_match = {
+                        "id": emp_id,
+                        "name": name,
+                        "employee_number": employee_number,
+                        "confidence": round((1 - best_distance) * 100, 2)  # Convert to percentage
+                    }
+
+            # Use confidence threshold (0.6 = 60% match required)
+            # Face distance < 0.6 is generally considered a match
+            if best_match and best_distance < 0.6:
+                return json.dumps({
+                    "success": True,
+                    "employee": best_match,
+                    "message": f"Match found: {best_match['name']} ({best_match['confidence']}% confidence)"
+                })
+            else:
+                return json.dumps({
+                    "success": True,
+                    "employee": None,
+                    "message": "No match found (confidence too low)"
+                })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "employee": None,
+                "message": f"Error recognizing face: {str(e)}"
+            })
+
+    @pyqtSlot(int, result=str)
+    def deleteFaceRegistration(self, employee_id):
+        """
+        Delete face registration for an employee.
+
+        Args:
+            employee_id (int): Database ID of employee
+
+        Returns:
+            str: JSON string with result
+        """
+        import json
+
+        try:
+            # Get face photo path before deleting
+            success, face_encoding_json, photo_path = self.db.get_face_encoding(employee_id)
+
+            # Delete from database
+            success, message = self.db.delete_face_encoding(employee_id)
+
+            if success:
+                # Try to delete the photo file if it exists
+                if photo_path and os.path.exists(photo_path):
+                    try:
+                        os.remove(photo_path)
+                    except Exception as e:
+                        print(f"Warning: Could not delete photo file: {e}")
+
+                return json.dumps({
+                    "success": True,
+                    "message": "Face registration deleted successfully"
+                })
+            else:
+                return json.dumps({
+                    "success": False,
+                    "message": message
+                })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error deleting face registration: {str(e)}"
+            })
+
+    @pyqtSlot(int, result=str)
+    def getFaceRegistrationStatus(self, employee_id):
+        """
+        Get face registration status for an employee.
+
+        Args:
+            employee_id (int): Database ID of employee
+
+        Returns:
+            str: JSON string with status
+        """
+        import json
+
+        try:
+            has_registration, registered_at = self.db.get_face_registration_status(employee_id)
+
+            return json.dumps({
+                "success": True,
+                "has_registration": has_registration,
+                "registered_at": registered_at
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error getting face registration status: {str(e)}"
+            })
+
+    @pyqtSlot(result=str)
+    def getAllFaceRegistrationStatuses(self):
+        """
+        Get face registration status for all employees.
+
+        Returns:
+            str: JSON string with array of {employee_number, has_registration, registered_at}
+        """
+        import json
+
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT employee_number, has_face_registration, face_registered_at
+                FROM employee
+                WHERE deleted_at IS NULL AND employee_number IS NOT NULL
+            """)
+
+            rows = cursor.fetchall()
+            conn.close()
+
+            statuses = []
+            for row in rows:
+                employee_number, has_registration, registered_at = row
+                statuses.append({
+                    "employee_number": employee_number,
+                    "has_face_registration": bool(has_registration),
+                    "face_registered_at": registered_at
+                })
+
+            return json.dumps({
+                "success": True,
+                "data": statuses
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error getting face registration statuses: {str(e)}",
+                "data": []
+            })
+
+    @pyqtSlot(result=str)
+    def resetDatabase(self):
+        """
+        Reset the database - drop all tables and recreate schema.
+
+        Returns:
+            str: JSON string with result
+        """
+        import json
+
+        try:
+            success, message = self.db.reset_database()
+
+            return json.dumps({
+                "success": success,
+                "message": message
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error resetting database: {str(e)}"
+            })
+
+    @pyqtSlot(result=str)
+    def getUnsyncedTimesheets(self):
+        """
+        Get all unsynced timesheets from local database.
+
+        Returns:
+            str: JSON string with array of unsynced timesheet records
+        """
+        import json
+
+        try:
+            unsynced_logs = self.db.get_unsynced_logs()
+
+            timesheets = []
+            for log in unsynced_logs:
+                # Unpack: id, employee_id, employee_backend_id, employee_code,
+                #         name, log_type, date, time, photo_path, sync_id
+                (log_id, local_emp_id, backend_emp_id, emp_code, emp_name,
+                 log_type, date, time, photo_path, sync_id) = log
+
+                timesheets.append({
+                    "id": log_id,  # Local database ID
+                    "employee_id": local_emp_id,  # Local employee table ID
+                    "employee": backend_emp_id,  # Backend employee ID for API
+                    "employee_code": emp_code,
+                    "employee_name": emp_name,
+                    "log_type": log_type,
+                    "date": date,
+                    "log_time": time,  # Renamed to match API format
+                    "photo_path": photo_path,
+                    "sync_id": sync_id
+                })
+
+            return json.dumps({
+                "success": True,
+                "data": timesheets,
+                "count": len(timesheets)
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "data": [],
+                "count": 0,
+                "error": str(e)
+            })
+
+    @pyqtSlot(int, int, result=str)
+    def markTimesheetSynced(self, log_id, backend_timesheet_id):
+        """
+        Mark a timesheet entry as successfully synced.
+
+        Args:
+            log_id (int): Local database ID of timesheet entry
+            backend_timesheet_id (int): Backend ID returned from API
+
+        Returns:
+            str: JSON string with result
+        """
+        import json
+
+        try:
+            self.db.mark_as_synced(log_id, backend_timesheet_id)
+
+            return json.dumps({
+                "success": True,
+                "message": "Timesheet marked as synced"
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error marking timesheet as synced: {str(e)}"
+            })
+
+    @pyqtSlot(int, str, result=str)
+    def markTimesheetSyncFailed(self, log_id, error_message):
+        """
+        Mark a timesheet entry sync as failed.
+
+        Args:
+            log_id (int): Local database ID of timesheet entry
+            error_message (str): Error message from sync attempt
+
+        Returns:
+            str: JSON string with result
+        """
+        import json
+
+        try:
+            self.db.mark_sync_failed(log_id, error_message)
+
+            return json.dumps({
+                "success": True,
+                "message": "Timesheet sync failure recorded"
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error recording sync failure: {str(e)}"
             })

@@ -24,9 +24,14 @@ const cameraReady = ref(false)
 const cameraEnabled = ref(true) // Camera toggle state
 const isProcessing = ref(false)
 
+// Face recognition mode
+const useFaceRecognition = ref(false)
+const isFaceScanning = ref(false)
+const faceRecognitionInterval = ref(null)
+
 // Employee validation state
 const employeeValidation = ref({
-  status: 'default', // 'default' | 'not_found' | 'found'
+  status: 'default', // 'default' | 'not_found' | 'found' | 'recognizing'
   employeeName: '',
   isValid: false
 })
@@ -38,6 +43,11 @@ const toastType = ref('info')
 
 // Timesheet logs state
 const recentLogs = ref([])
+
+// Timesheet sync state
+const isSyncingTimesheets = ref(false)
+const unsyncedTimesheetsCount = ref(0)
+let timesheetSyncInterval = null
 
 // Date range filter state
 const getTodayDate = () => {
@@ -71,8 +81,117 @@ const handleCameraToggleHover = (event, isHover) => {
   }
 }
 
+// Face Recognition Mode Toggle
+const toggleFaceRecognition = () => {
+  useFaceRecognition.value = !useFaceRecognition.value
+
+  if (useFaceRecognition.value) {
+    // Switching to face recognition mode
+    employeeId.value = ''
+    employeeValidation.value = {
+      status: 'default',
+      employeeName: '',
+      isValid: false
+    }
+
+    // Enable camera if disabled
+    if (!cameraEnabled.value) {
+      cameraEnabled.value = true
+    }
+
+    // Start face scanning
+    startFaceScanning()
+  } else {
+    // Switching to employee number mode
+    stopFaceScanning()
+    employeeValidation.value = {
+      status: 'default',
+      employeeName: '',
+      isValid: false
+    }
+    focusInput()
+  }
+}
+
+// Face Recognition Scanning
+const startFaceScanning = () => {
+  if (!cameraEnabled.value || !cameraReady.value) {
+    return
+  }
+
+  isFaceScanning.value = true
+  employeeValidation.value = {
+    status: 'recognizing',
+    employeeName: '',
+    isValid: false
+  }
+
+  // Scan every 2 seconds
+  faceRecognitionInterval.value = setInterval(async () => {
+    await performFaceRecognition()
+  }, 2000)
+}
+
+const stopFaceScanning = () => {
+  if (faceRecognitionInterval.value) {
+    clearInterval(faceRecognitionInterval.value)
+    faceRecognitionInterval.value = null
+  }
+  isFaceScanning.value = false
+}
+
+const performFaceRecognition = async () => {
+  if (!cameraRef.value || !kioskBridge) return
+
+  try {
+    // Capture photo from camera
+    const photoBase64 = await cameraRef.value.capturePhoto()
+
+    if (!photoBase64) {
+      console.log('No photo captured')
+      return
+    }
+
+    // Call bridge to recognize face
+    const resultJson = await kioskBridge.recognizeFace(photoBase64)
+    const result = JSON.parse(resultJson)
+
+    if (result.success && result.employee) {
+      // Face recognized!
+      stopFaceScanning()
+
+      employeeValidation.value = {
+        status: 'found',
+        employeeName: result.employee.name,
+        isValid: true
+      }
+
+      // Store employee number for time logging
+      employeeId.value = result.employee.employee_number.toString()
+
+      // Show confidence in toast
+      showToast(`Face recognized: ${result.employee.name} (${result.employee.confidence}% confidence)`, 'success')
+    } else {
+      // No match found, keep scanning
+      employeeValidation.value = {
+        status: 'recognizing',
+        employeeName: result.message || 'Scanning for face...',
+        isValid: false
+      }
+    }
+  } catch (error) {
+    console.error('Face recognition error:', error)
+    employeeValidation.value = {
+      status: 'recognizing',
+      employeeName: 'Scanning for face...',
+      isValid: false
+    }
+  }
+}
+
 // PyQt Bridge
 let kioskBridge = null
+let pendingSyncAfterLogin = false
 
 onMounted(async () => {
   // Check authentication status first
@@ -89,6 +208,17 @@ onMounted(async () => {
       if (isAuthenticated.value) {
         loadCompanyInfo()
         loadRecentLogs()
+
+        // Sync employees if we're authenticated (e.g., from stored session)
+        console.log('🔄 Bridge ready, syncing employees...')
+        syncEmployeesFromAPI()
+      }
+
+      // If there's a pending sync from login, execute it now
+      if (pendingSyncAfterLogin) {
+        console.log('🔄 Bridge ready, executing pending sync from login...')
+        pendingSyncAfterLogin = false
+        syncEmployeesFromAPI()
       }
     })
   } else {
@@ -141,13 +271,18 @@ const validateEmployee = async () => {
       const resultJson = await kioskBridge.getEmployeeByNumber(empNumber)
       const result = JSON.parse(resultJson)
 
+      console.log('🔍 Employee validation result:', result)
+      console.log('🔍 Employee data:', result.employee)
+      console.log('🔍 Employee name:', result.employee?.name)
+
       if (result.success && result.employee) {
         // Employee found
         employeeValidation.value = {
           status: 'found',
-          employeeName: result.employee.name,
+          employeeName: result.employee.name || 'Unknown',
           isValid: true
         }
+        console.log('✅ Set employeeValidation:', employeeValidation.value)
       } else {
         // Employee not found
         employeeValidation.value = {
@@ -265,6 +400,8 @@ const handleTimeEntry = async (action) => {
         focusInput()
         // Reload recent logs
         loadRecentLogs()
+        // Update unsynced count (new timesheet entry added)
+        updateUnsyncedCount()
       } else {
         showToast(result.message, 'error')
       }
@@ -452,6 +589,231 @@ const handleRefresh = async () => {
   }, 500) // Show spinning animation for at least 500ms
 }
 
+// ==================== TIMESHEET SYNC ====================
+
+// Update unsynced timesheets count
+const updateUnsyncedCount = async () => {
+  try {
+    const result = await apiService.getUnsyncedTimesheetsCount()
+    if (result.success) {
+      unsyncedTimesheetsCount.value = result.count || 0
+      console.log(`📊 Unsynced timesheets: ${unsyncedTimesheetsCount.value}`)
+    }
+  } catch (error) {
+    console.error('Error updating unsynced count:', error)
+  }
+}
+
+// Manual timesheet sync handler
+const handleTimesheetSync = async () => {
+  if (isSyncingTimesheets.value) return
+
+  console.log('🔄 Manual timesheet sync triggered...')
+  isSyncingTimesheets.value = true
+
+  try {
+    const result = await apiService.syncTimesheetsToBackend()
+
+    if (result.success) {
+      if (result.synced_count > 0) {
+        showToast(`Successfully synced ${result.synced_count} timesheet(s)`, 'success')
+        console.log(`✅ Synced ${result.synced_count}/${result.total_count} timesheets`)
+
+        if (result.failed_count > 0) {
+          console.warn(`⚠️ Failed to sync ${result.failed_count} timesheets:`, result.errors)
+          showToast(`Warning: ${result.failed_count} timesheet(s) failed to sync`, 'warning')
+        }
+
+        // Refresh logs and update count
+        await loadRecentLogs()
+        await updateUnsyncedCount()
+      } else {
+        showToast('No timesheets synced', 'info')
+      }
+    } else {
+      showToast(result.message || 'Failed to sync timesheets', 'error')
+      console.error('❌ Timesheet sync failed:', result.message)
+    }
+
+  } catch (error) {
+    console.error('Error syncing timesheets:', error)
+    showToast('Error syncing timesheets. Please try again.', 'error')
+  } finally {
+    isSyncingTimesheets.value = false
+  }
+}
+
+// Sync individual timesheet
+const handleSyncIndividualTimesheet = async (log) => {
+  if (isSyncingTimesheets.value) return
+
+  console.log('🔄 Syncing individual timesheet:', log)
+  isSyncingTimesheets.value = true
+
+  try {
+    // Check if employee has backend_id
+    if (!log.employee_backend_id) {
+      showToast('Employee not synced to backend yet', 'error')
+      return
+    }
+
+    // Extract date and time from timestamp (format: "2025-11-06 14:30")
+    const [date, time] = log.timestamp.split(' ')
+
+    // Sync this specific timesheet
+    const syncResult = await apiService.createTimesheet(
+      log.employee_backend_id,  // Use backend_id from log
+      date,
+      log.action.toLowerCase(), // Convert "IN"/"OUT" to "in"/"out"
+      time
+    )
+
+    if (syncResult.success) {
+      // Mark as synced in local database
+      await window.kioskBridge.markTimesheetSynced(log.id, syncResult.timesheet_id)
+
+      showToast('Timesheet synced successfully', 'success')
+      console.log(`✅ Synced timesheet ID ${log.id} → Backend ID ${syncResult.timesheet_id}`)
+
+      // Refresh logs and update count
+      await loadRecentLogs()
+      await updateUnsyncedCount()
+    } else {
+      // Mark sync as failed
+      await window.kioskBridge.markTimesheetSyncFailed(log.id, syncResult.message || 'Unknown error')
+
+      showToast(syncResult.message || 'Failed to sync timesheet', 'error')
+      console.error('❌ Timesheet sync failed:', syncResult.message)
+
+      // Refresh to show error status
+      await loadRecentLogs()
+    }
+
+  } catch (error) {
+    console.error('Error syncing individual timesheet:', error)
+    showToast('Error syncing timesheet. Please try again.', 'error')
+
+    // Mark sync as failed
+    if (window.kioskBridge) {
+      await window.kioskBridge.markTimesheetSyncFailed(log.id, error.message || 'Network error')
+      await loadRecentLogs()
+    }
+  } finally {
+    isSyncingTimesheets.value = false
+  }
+}
+
+// Resync failed timesheet
+const handleResyncTimesheet = async (log) => {
+  if (isSyncingTimesheets.value) return
+
+  console.log('🔄 Resyncing failed timesheet:', log)
+  isSyncingTimesheets.value = true
+
+  try {
+    // Check if employee has backend_id
+    if (!log.employee_backend_id) {
+      showToast('Employee not synced to backend yet', 'error')
+      return
+    }
+
+    // Extract date and time from timestamp (format: "2025-11-06 14:30")
+    const [date, time] = log.timestamp.split(' ')
+
+    // Retry sync - this will create a new timesheet on the backend
+    const syncResult = await apiService.createTimesheet(
+      log.employee_backend_id,  // Use backend_id from log
+      date,
+      log.action.toLowerCase(), // Convert "IN"/"OUT" to "in"/"out"
+      time
+    )
+
+    if (syncResult.success) {
+      // Mark as synced in local database (clears error message and sets backend_id)
+      await window.kioskBridge.markTimesheetSynced(log.id, syncResult.timesheet_id)
+
+      showToast('Timesheet resynced successfully', 'success')
+      console.log(`✅ Resynced timesheet ID ${log.id} → Backend ID ${syncResult.timesheet_id}`)
+
+      // Refresh logs and update count
+      await loadRecentLogs()
+      await updateUnsyncedCount()
+    } else {
+      // Update the error message
+      await window.kioskBridge.markTimesheetSyncFailed(log.id, syncResult.message || 'Unknown error')
+
+      showToast(syncResult.message || 'Failed to resync timesheet', 'error')
+      console.error('❌ Timesheet resync failed:', syncResult.message)
+
+      // Refresh to show updated error status
+      await loadRecentLogs()
+    }
+
+  } catch (error) {
+    console.error('Error resyncing timesheet:', error)
+    showToast('Error resyncing timesheet. Please try again.', 'error')
+
+    // Update error message
+    if (window.kioskBridge) {
+      await window.kioskBridge.markTimesheetSyncFailed(log.id, error.message || 'Network error')
+      await loadRecentLogs()
+    }
+  } finally {
+    isSyncingTimesheets.value = false
+  }
+}
+
+// Periodic timesheet sync (every 10 minutes)
+const startPeriodicTimesheetSync = () => {
+  // Clear existing interval if any
+  if (timesheetSyncInterval) {
+    clearInterval(timesheetSyncInterval)
+  }
+
+  // Initial count update
+  updateUnsyncedCount()
+
+  // Sync every 10 minutes (600000 ms)
+  timesheetSyncInterval = setInterval(async () => {
+    console.log('⏰ Periodic timesheet sync triggered (10 min interval)...')
+
+    // Only sync if there are unsynced timesheets
+    if (unsyncedTimesheetsCount.value > 0 && !isSyncingTimesheets.value) {
+      isSyncingTimesheets.value = true
+
+      try {
+        const result = await apiService.syncTimesheetsToBackend()
+
+        if (result.success && result.synced_count > 0) {
+          console.log(`✅ Periodic sync: ${result.synced_count}/${result.total_count} timesheets synced`)
+
+          // Refresh logs and update count
+          await loadRecentLogs()
+          await updateUnsyncedCount()
+        }
+      } catch (error) {
+        console.error('Error in periodic sync:', error)
+      } finally {
+        isSyncingTimesheets.value = false
+      }
+    } else {
+      // Just update the count
+      await updateUnsyncedCount()
+    }
+  }, 600000) // 10 minutes
+
+  console.log('⏰ Periodic timesheet sync started (every 10 minutes)')
+}
+
+// Stop periodic sync
+const stopPeriodicTimesheetSync = () => {
+  if (timesheetSyncInterval) {
+    clearInterval(timesheetSyncInterval)
+    timesheetSyncInterval = null
+    console.log('⏰ Periodic timesheet sync stopped')
+  }
+}
+
 // User dropdown state
 const userDropdownOpen = ref(false)
 const currentUserName = ref('Admin User') // Placeholder - will be replaced with actual user data
@@ -492,6 +854,9 @@ const handleLogout = async () => {
   // Call API logout
   await apiService.logout()
 
+  // Stop periodic timesheet sync
+  stopPeriodicTimesheetSync()
+
   isAuthenticated.value = false
   currentUser.value = null
   currentUserName.value = 'Admin User'
@@ -517,18 +882,22 @@ const handleLoginSuccess = async (data) => {
     companyName.value = data.company.name
     console.log('✅ Company name set to:', companyName.value)
 
-    // Update company in database via bridge
+    // Update company in database via bridge (don't block on this)
     if (kioskBridge) {
-      await updateCompanyInDatabase(data.company)
+      updateCompanyInDatabase(data.company).catch(err => {
+        console.error('Failed to update company in database:', err)
+      })
     }
   } else {
     console.warn('⚠️ No company data in login response!')
     console.warn('⚠️ Available keys in data:', Object.keys(data))
   }
 
-  // Update user in database via bridge
+  // Update user in database via bridge (don't block on this)
   if (data.user && kioskBridge) {
-    await updateUserInDatabase(data.user)
+    updateUserInDatabase(data.user).catch(err => {
+      console.error('Failed to update user in database:', err)
+    })
   }
 
   showToast(`Welcome back, ${data.user.name}!`, 'success')
@@ -537,7 +906,23 @@ const handleLoginSuccess = async (data) => {
   loadRecentLogs()
 
   // Sync employees from API to local database
-  await syncEmployeesFromAPI()
+  console.log('📥 About to sync employees after login')
+  console.log('📥 kioskBridge:', kioskBridge)
+  console.log('📥 window.kioskBridge:', window.kioskBridge)
+  console.log('📥 Bridge available:', !!(kioskBridge || window.kioskBridge))
+
+  // If bridge is ready, sync immediately
+  if (kioskBridge || window.kioskBridge) {
+    console.log('✅ Bridge available, syncing immediately...')
+    await syncEmployeesFromAPI()
+  } else {
+    // Mark that we need to sync once bridge is ready
+    console.log('⏳ Bridge not ready yet, will sync when bridge initializes...')
+    pendingSyncAfterLogin = true
+  }
+
+  // Start periodic timesheet sync after login
+  startPeriodicTimesheetSync()
 }
 
 // Update company in database via bridge
@@ -626,35 +1011,44 @@ const checkAuthentication = async () => {
   isCheckingAuth.value = false
 }
 
-// Sync employees from API to local database
+// Sync employees from API to local database (with cleanup)
 const syncEmployeesFromAPI = async () => {
-  if (!kioskBridge) {
-    console.warn('Bridge not available, skipping employee sync')
+  console.log('🔄 syncEmployeesFromAPI called')
+  console.log('🔄 kioskBridge available:', !!kioskBridge)
+  console.log('🔄 window.kioskBridge available:', !!window.kioskBridge)
+
+  const bridge = kioskBridge || window.kioskBridge
+
+  if (!bridge) {
+    console.warn('⚠️ Bridge not available, skipping employee sync')
     return
   }
 
   try {
-    showToast('Syncing employees...', 'info')
+    console.log('📡 Fetching and syncing employees from API...')
 
-    // Fetch all employees from API (with higher limit)
-    const result = await apiService.getEmployees({ limit: 1000, is_active: true })
+    // Use the syncEmployeesWithCleanup API method
+    // This fetches from API and syncs with cleanup in one call
+    const result = await apiService.syncEmployeesWithCleanup()
+    console.log('💾 Sync result:', result)
 
-    if (result.success && result.data.length > 0) {
-      // Send employee data to Python bridge for database sync
-      const syncResult = await kioskBridge.syncEmployeesFromAPI(JSON.stringify(result.data))
-      const syncData = JSON.parse(syncResult)
-
-      if (syncData.success) {
-        showToast(`Synced ${syncData.synced_count} employees`, 'success')
-        // Reload recent logs after sync
-        loadRecentLogs()
-      } else {
-        showToast('Employee sync failed', 'error')
+    if (result.success) {
+      const syncData = result.data
+      const totalSynced = (syncData.added_count || 0) + (syncData.updated_count || 0)
+      console.log(`✅ Successfully synced ${totalSynced} employees (${syncData.added_count} added, ${syncData.updated_count} updated)`)
+      if (syncData.deleted_count > 0) {
+        console.log(`🗑️ Soft-deleted ${syncData.deleted_count} employees`)
       }
+      if (syncData.skipped_count > 0) {
+        console.log(`⏭️ Skipped ${syncData.skipped_count} employees (have application records)`)
+      }
+      // Reload recent logs after sync
+      loadRecentLogs()
+    } else {
+      console.error('❌ Employee sync failed:', result.message)
     }
   } catch (error) {
-    console.error('Error syncing employees:', error)
-    showToast('Error syncing employees', 'error')
+    console.error('❌ Error syncing employees:', error)
   }
 }
 
@@ -701,6 +1095,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
+  stopFaceScanning() // Cleanup face recognition interval
 })
 </script>
 
@@ -1020,7 +1415,18 @@ onBeforeUnmount(() => {
                 v-if="employeeValidation.status === 'default'"
                 class="flex items-center justify-center gap-2 text-white text-sm"
               >
-                <span>Enter your code</span>
+                <span>{{ useFaceRecognition ? 'Face Recognition Mode' : 'Enter your code' }}</span>
+              </div>
+
+              <div
+                v-else-if="employeeValidation.status === 'recognizing'"
+                class="flex items-center justify-center gap-2 text-sm font-semibold text-blue-400"
+              >
+                <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>{{ employeeValidation.employeeName || 'Scanning for face...' }}</span>
               </div>
 
               <div
@@ -1042,14 +1448,34 @@ onBeforeUnmount(() => {
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Employee: {{ employeeValidation.employeeName }}</span>
+                <span>Employee Found: {{ employeeValidation.employeeName }}</span>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Employee ID Input Field -->
+        <!-- Mode Toggle Button -->
         <div class="flex-shrink-0">
+          <button
+            @click="toggleFaceRecognition"
+            class="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium text-sm transition-all shadow-md"
+            :class="useFaceRecognition
+              ? 'bg-blue-500 hover:bg-blue-600 text-white'
+              : 'bg-slate-200 hover:bg-slate-300 text-slate-700'"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path v-if="!useFaceRecognition" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              <template v-else>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </template>
+            </svg>
+            {{ useFaceRecognition ? 'Using Face Recognition' : 'Use Face Recognition' }}
+          </button>
+        </div>
+
+        <!-- Employee ID Input Field -->
+        <div v-if="!useFaceRecognition" class="flex-shrink-0">
           <input
             ref="inputRef"
             v-model="employeeId"
@@ -1064,8 +1490,18 @@ onBeforeUnmount(() => {
           />
         </div>
 
+        <!-- Face Recognition Instructions -->
+        <div v-else class="flex-shrink-0 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
+          <div class="flex items-center justify-center gap-2 text-blue-800">
+            <svg class="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span class="text-sm font-medium">Look at the camera to identify yourself</span>
+          </div>
+        </div>
+
         <!-- Numeric Keypad -->
-        <div class="numpad-section flex-shrink-0">
+        <div v-if="!useFaceRecognition" class="numpad-section flex-shrink-0">
           <NumericKeypad
             @digit-click="handleDigitClick"
             @backspace="handleBackspace"
@@ -1133,6 +1569,33 @@ onBeforeUnmount(() => {
             <div class="text-xs" style="color: #68625D;">
               {{ recentLogs.length }} records
             </div>
+            <!-- Sync Timesheets Button -->
+            <button
+              @click="handleTimesheetSync"
+              :disabled="isSyncingTimesheets || unsyncedTimesheetsCount === 0"
+              class="relative p-1 rounded hover:bg-gray-100 transition-colors disabled:opacity-50"
+              :title="unsyncedTimesheetsCount > 0 ? `Sync ${unsyncedTimesheetsCount} unsynced timesheet(s)` : 'No timesheets to sync'"
+            >
+              <!-- Cloud upload icon -->
+              <svg
+                class="w-4 h-4 transition-transform"
+                :class="{ 'animate-pulse': isSyncingTimesheets }"
+                style="color: #1CB454;"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <!-- Badge for unsynced count -->
+              <span
+                v-if="unsyncedTimesheetsCount > 0"
+                class="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"
+              >
+                {{ unsyncedTimesheetsCount > 99 ? '99+' : unsyncedTimesheetsCount }}
+              </span>
+            </button>
+            <!-- Refresh Button -->
             <button
               @click="handleRefresh"
               :disabled="isRefreshing"
@@ -1159,11 +1622,11 @@ onBeforeUnmount(() => {
             <thead class="sticky top-0 z-10" style="background-color: #EEF2F7;">
               <tr>
                 <th class="border px-2 py-2 text-center font-bold" style="border-color: #68625D; color: #313A46; width: 40px;">Status</th>
-                <th class="border px-2 py-2 text-left font-bold" style="border-color: #68625D; color: #313A46;">Code</th>
                 <th class="border px-2 py-2 text-left font-bold" style="border-color: #68625D; color: #313A46;">Name</th>
                 <th class="border px-2 py-2 text-center font-bold" style="border-color: #68625D; color: #313A46;">Action</th>
                 <th class="border px-2 py-2 text-left font-bold" style="border-color: #68625D; color: #313A46;">Date</th>
                 <th class="border px-2 py-2 text-left font-bold" style="border-color: #68625D; color: #313A46;">Time</th>
+                <th class="border px-2 py-2 text-center font-bold" style="border-color: #68625D; color: #313A46; width: 50px;">Resync</th>
               </tr>
             </thead>
             <tbody>
@@ -1175,16 +1638,24 @@ onBeforeUnmount(() => {
                 @mouseover="handleTableRowHover($event, index, true)"
                 @mouseout="handleTableRowHover($event, index, false)"
               >
-                <td class="border px-2 py-2 text-center" style="border-color: #68625D; width: 40px;" :title="log.error_message || 'Success'">
-                  <svg v-if="log.status === 'success'" class="w-4 h-4 mx-auto" style="color: #1CB454;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <td class="border px-2 py-2 text-center" style="border-color: #68625D; width: 40px;"
+                    :title="log.backend_timesheet_id ? `Synced to backend (ID: ${log.backend_timesheet_id})` : (log.sync_error_message || (log.status === 'error' ? (log.error_message || 'Local error') : 'Pending sync'))">
+                  <!-- Green checkmark: Synced to backend -->
+                  <svg v-if="log.backend_timesheet_id" class="w-4 h-4 mx-auto" style="color: #1CB454;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                   </svg>
-                  <svg v-else class="w-4 h-4 mx-auto" style="color: #E63535;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  <!-- Red warning triangle: Local error or sync error -->
+                  <svg v-else-if="log.status === 'error' || log.sync_error_message" class="w-4 h-4 mx-auto" style="color: #E63535;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <!-- Orange clock icon: Pending sync (not clickable) -->
+                  <svg v-else class="w-4 h-4 mx-auto" style="color: #FFA500;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </td>
-                <td class="border px-2 py-2 text-xs" style="border-color: #68625D; color: #313A46;">{{ log.employee_code || log.employee_id }}</td>
-                <td class="border px-2 py-2 text-xs" style="border-color: #68625D; color: #313A46;">{{ log.employee_name || '-' }}</td>
+                <td class="border px-2 py-2 text-xs" style="border-color: #68625D; color: #313A46;">
+                  {{ log.employee_number ? `${log.employee_number} - ${log.employee_name || '-'}` : (log.employee_name || '-') }}
+                </td>
                 <td class="border px-2 py-2 text-center" style="border-color: #68625D;">
                   <span
                     class="px-2 py-1 rounded text-xs font-semibold inline-block"
@@ -1195,6 +1666,20 @@ onBeforeUnmount(() => {
                 </td>
                 <td class="border px-2 py-2 text-xs" style="border-color: #68625D; color: #313A46;">{{ formatDate(log.timestamp) }}</td>
                 <td class="border px-2 py-2 text-xs" style="border-color: #68625D; color: #313A46;">{{ formatTime(log.timestamp) }}</td>
+                <!-- Resync button for failed records -->
+                <td class="border px-2 py-2 text-center" style="border-color: #68625D; width: 50px;">
+                  <button
+                    v-if="log.status === 'error' || log.sync_error_message"
+                    @click="handleResyncTimesheet(log)"
+                    :disabled="isSyncingTimesheets"
+                    class="p-1 rounded hover:bg-red-100 transition-colors disabled:opacity-50"
+                    title="Retry sync"
+                  >
+                    <svg class="w-4 h-4" :class="{ 'animate-spin': isSyncingTimesheets }" style="color: #E63535;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>

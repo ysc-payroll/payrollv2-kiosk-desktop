@@ -28,10 +28,157 @@ class Database:
         return sqlite3.connect(self.db_path)
 
     def init_schema(self):
-        """Initialize database schema - tables are created via create_schema.py."""
-        # Schema is managed by create_schema.py
-        # This method kept for compatibility
-        pass
+        """Initialize database schema - auto-create tables if they don't exist."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            # Check if tables exist
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in cursor.fetchall()}
+
+            # If no tables exist or missing critical tables, create schema
+            required_tables = {'company', 'employee', 'timesheet', 'users'}
+            if not required_tables.issubset(existing_tables):
+                print("📋 Creating database tables...")
+                self._create_schema(cursor)
+                self._add_face_recognition_fields(cursor)
+                self._add_timesheet_sync_fields(cursor)
+                conn.commit()
+                print("✅ Database schema initialized")
+            else:
+                # Ensure new columns exist even for existing databases
+                self._add_face_recognition_fields(cursor)
+                self._add_timesheet_sync_fields(cursor)
+                conn.commit()
+
+            conn.close()
+        except Exception as e:
+            print(f"Error initializing schema: {e}")
+
+    def _create_schema(self, cursor):
+        """Create all database tables."""
+        # Company table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS company (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                backend_id INTEGER UNIQUE,
+                name TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_company_backend_id ON company(backend_id)")
+
+        # Employee table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS employee (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                backend_id INTEGER UNIQUE,
+                name TEXT NOT NULL,
+                employee_code TEXT,
+                employee_number INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_employee_backend_id ON employee(backend_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_employee_code ON employee(employee_code)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_employee_deleted_at ON employee(deleted_at)")
+
+        # Timesheet table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS timesheet (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sync_id TEXT UNIQUE NOT NULL,
+                employee_id INTEGER NOT NULL,
+                log_type TEXT NOT NULL CHECK(log_type IN ('in', 'out')),
+                date TEXT NOT NULL,
+                time TEXT NOT NULL,
+                photo_path TEXT,
+                is_synced BOOLEAN DEFAULT 0,
+                status TEXT DEFAULT 'success',
+                error_message TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (employee_id) REFERENCES employee(id)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_timesheet_sync_id ON timesheet(sync_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_timesheet_employee_id ON timesheet(employee_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_timesheet_date ON timesheet(date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_timesheet_is_synced ON timesheet(is_synced)")
+
+        # Users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                email TEXT NOT NULL,
+                name TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                last_login DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+    def _add_face_recognition_fields(self, cursor):
+        """Add face recognition fields to employee table if they don't exist."""
+        # Check existing columns
+        cursor.execute("PRAGMA table_info(employee)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        # Add missing face recognition columns
+        if 'face_encoding' not in existing_columns:
+            cursor.execute("ALTER TABLE employee ADD COLUMN face_encoding TEXT")
+        if 'face_photo_path' not in existing_columns:
+            cursor.execute("ALTER TABLE employee ADD COLUMN face_photo_path TEXT")
+        if 'face_registered_at' not in existing_columns:
+            cursor.execute("ALTER TABLE employee ADD COLUMN face_registered_at DATETIME")
+        if 'has_face_registration' not in existing_columns:
+            cursor.execute("ALTER TABLE employee ADD COLUMN has_face_registration BOOLEAN DEFAULT 0")
+
+    def _add_timesheet_sync_fields(self, cursor):
+        """Add backend sync fields to timesheet table if they don't exist."""
+        # Check existing columns
+        cursor.execute("PRAGMA table_info(timesheet)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        # Add missing sync columns
+        if 'backend_timesheet_id' not in existing_columns:
+            cursor.execute("ALTER TABLE timesheet ADD COLUMN backend_timesheet_id INTEGER")
+        if 'synced_at' not in existing_columns:
+            cursor.execute("ALTER TABLE timesheet ADD COLUMN synced_at DATETIME")
+        if 'sync_error_message' not in existing_columns:
+            cursor.execute("ALTER TABLE timesheet ADD COLUMN sync_error_message TEXT")
+
+        # Create index for backend_timesheet_id if it doesn't exist
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='index' AND name='idx_timesheet_backend_id'
+        """)
+        if not cursor.fetchone():
+            cursor.execute("CREATE INDEX idx_timesheet_backend_id ON timesheet(backend_timesheet_id)")
+
+    def reset_database(self):
+        """Drop all tables and recreate schema."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            # Drop all tables
+            cursor.execute("DROP TABLE IF EXISTS timesheet")
+            cursor.execute("DROP TABLE IF EXISTS employee")
+            cursor.execute("DROP TABLE IF EXISTS company")
+            cursor.execute("DROP TABLE IF EXISTS users")
+
+            # Recreate schema
+            self._create_schema(cursor)
+            self._add_face_recognition_fields(cursor)
+            self._add_timesheet_sync_fields(cursor)
+
+            conn.commit()
+            conn.close()
+            return True, "Database reset successfully"
+        except Exception as e:
+            return False, f"Error resetting database: {str(e)}"
 
     def log_time_entry(self, employee_id, action, photo_path=None):
         """
@@ -137,14 +284,14 @@ class Database:
             return False, f"Database error: {str(e)}", None
 
     def get_recent_logs(self, limit=10):
-        """Get recent log entries with employee details."""
+        """Get recent log entries with employee details and sync status."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT t.id, t.employee_id, e.employee_code, e.name, t.log_type,
-                   t.date || ' ' || t.time as timestamp, t.photo_path, t.is_synced,
-                   t.status, t.error_message
+            SELECT t.id, t.employee_id, e.employee_code, e.employee_number, e.name, e.backend_id, t.log_type,
+                   t.date || ' ' || t.time as timestamp, t.photo_path,
+                   t.backend_timesheet_id, t.status, t.error_message, t.sync_error_message
             FROM timesheet t
             LEFT JOIN employee e ON t.employee_id = e.id
             ORDER BY t.date || ' ' || t.time DESC
@@ -156,14 +303,14 @@ class Database:
         return rows
 
     def get_logs_by_date_range(self, date_from, date_to):
-        """Get log entries filtered by date range with employee details."""
+        """Get log entries filtered by date range with employee details and sync status."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT t.id, t.employee_id, e.employee_code, e.name, t.log_type,
-                   t.date || ' ' || t.time as timestamp, t.photo_path, t.is_synced,
-                   t.status, t.error_message
+            SELECT t.id, t.employee_id, e.employee_code, e.employee_number, e.name, e.backend_id, t.log_type,
+                   t.date || ' ' || t.time as timestamp, t.photo_path,
+                   t.backend_timesheet_id, t.status, t.error_message, t.sync_error_message
             FROM timesheet t
             LEFT JOIN employee e ON t.employee_id = e.id
             WHERE t.date >= ? AND t.date <= ?
@@ -175,16 +322,23 @@ class Database:
         return rows
 
     def get_unsynced_logs(self):
-        """Get all timesheet logs that haven't been synced."""
+        """
+        Get all timesheet logs that haven't been synced.
+        A log is unsynced if backend_timesheet_id is NULL and status is 'success'.
+
+        Returns:
+            list: List of tuples (id, employee_id, employee_backend_id, employee_code,
+                  name, log_type, date, time, photo_path, sync_id)
+        """
         conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT t.id, t.employee_id, e.employee_code, e.name, t.log_type,
+            SELECT t.id, t.employee_id, e.backend_id, e.employee_code, e.name, t.log_type,
                    t.date, t.time, t.photo_path, t.sync_id
             FROM timesheet t
             LEFT JOIN employee e ON t.employee_id = e.id
-            WHERE t.is_synced = 0 AND t.status = 'success'
+            WHERE t.backend_timesheet_id IS NULL AND t.status = 'success'
             ORDER BY t.date ASC, t.time ASC
         """)
 
@@ -193,16 +347,49 @@ class Database:
 
         return rows
 
-    def mark_as_synced(self, log_id):
-        """Mark a timesheet entry as synced."""
+    def mark_as_synced(self, log_id, backend_timesheet_id=None):
+        """
+        Mark a timesheet entry as synced by storing the backend ID.
+        Sync status is determined by backend_timesheet_id IS NOT NULL.
+
+        Args:
+            log_id (int): Local database ID of timesheet entry
+            backend_timesheet_id (int): Backend ID from API response (required)
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        # backend_timesheet_id is the indicator of sync status
+        # If it's NULL, timesheet is not synced; if it has a value, it's synced
+        cursor.execute("""
+            UPDATE timesheet
+            SET backend_timesheet_id = ?,
+                synced_at = ?,
+                sync_error_message = NULL
+            WHERE id = ?
+        """, (backend_timesheet_id, datetime.now(), log_id))
+
+        conn.commit()
+        conn.close()
+
+    def mark_sync_failed(self, log_id, error_message):
+        """
+        Mark a timesheet entry sync as failed.
+        Keeps backend_timesheet_id as NULL (indicating not synced) and stores error message.
+
+        Args:
+            log_id (int): Local database ID of timesheet entry
+            error_message (str): Error message from sync attempt
+        """
         conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
             UPDATE timesheet
-            SET is_synced = 1
+            SET sync_error_message = ?,
+                backend_timesheet_id = NULL
             WHERE id = ?
-        """, (log_id,))
+        """, (error_message, log_id))
 
         conn.commit()
         conn.close()
@@ -280,3 +467,164 @@ class Database:
 
         has_records = len(record_types) > 0
         return has_records, record_types
+
+    def save_face_encoding(self, employee_id, face_encoding_json, photo_path):
+        """
+        Save face encoding for an employee.
+
+        Args:
+            employee_id (int): Database ID of employee
+            face_encoding_json (str): JSON-serialized face encoding array
+            photo_path (str): Path to reference photo
+
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            # Update employee record with face data
+            cursor.execute("""
+                UPDATE employee
+                SET face_encoding = ?,
+                    face_photo_path = ?,
+                    face_registered_at = ?,
+                    has_face_registration = 1
+                WHERE id = ?
+            """, (face_encoding_json, photo_path, datetime.now(), employee_id))
+
+            if cursor.rowcount == 0:
+                conn.close()
+                return False, "Employee not found"
+
+            conn.commit()
+            conn.close()
+            return True, "Face encoding saved successfully"
+
+        except Exception as e:
+            return False, f"Error saving face encoding: {str(e)}"
+
+    def get_face_encoding(self, employee_id):
+        """
+        Get face encoding for an employee.
+
+        Args:
+            employee_id (int): Database ID of employee
+
+        Returns:
+            tuple: (success: bool, face_encoding_json: str or None, photo_path: str or None)
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT face_encoding, face_photo_path
+                FROM employee
+                WHERE id = ? AND has_face_registration = 1 AND deleted_at IS NULL
+            """, (employee_id,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if row and row[0]:
+                return True, row[0], row[1]
+            else:
+                return False, None, None
+
+        except Exception as e:
+            return False, None, None
+
+    def get_all_face_encodings(self):
+        """
+        Get all face encodings for active employees.
+
+        Returns:
+            list: List of tuples (employee_id, name, face_encoding_json)
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT id, name, face_encoding, employee_number
+                FROM employee
+                WHERE has_face_registration = 1
+                  AND face_encoding IS NOT NULL
+                  AND deleted_at IS NULL
+            """)
+
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+
+        except Exception as e:
+            print(f"Error getting face encodings: {str(e)}")
+            return []
+
+    def delete_face_encoding(self, employee_id):
+        """
+        Delete face encoding for an employee.
+
+        Args:
+            employee_id (int): Database ID of employee
+
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            # Clear face data
+            cursor.execute("""
+                UPDATE employee
+                SET face_encoding = NULL,
+                    face_photo_path = NULL,
+                    face_registered_at = NULL,
+                    has_face_registration = 0
+                WHERE id = ?
+            """, (employee_id,))
+
+            if cursor.rowcount == 0:
+                conn.close()
+                return False, "Employee not found"
+
+            conn.commit()
+            conn.close()
+            return True, "Face encoding deleted successfully"
+
+        except Exception as e:
+            return False, f"Error deleting face encoding: {str(e)}"
+
+    def get_face_registration_status(self, employee_id):
+        """
+        Check if employee has face registration.
+
+        Args:
+            employee_id (int): Database ID of employee
+
+        Returns:
+            tuple: (has_registration: bool, registered_at: str or None)
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT has_face_registration, face_registered_at
+                FROM employee
+                WHERE id = ? AND deleted_at IS NULL
+            """, (employee_id,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if row:
+                return bool(row[0]), row[1]
+            else:
+                return False, None
+
+        except Exception as e:
+            return False, None

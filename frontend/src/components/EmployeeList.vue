@@ -83,6 +83,12 @@
                 <th class="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-700">
                   Full Name
                 </th>
+                <th class="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wide text-slate-700">
+                  Face ID
+                </th>
+                <th class="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wide text-slate-700">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-200">
@@ -96,6 +102,42 @@
                 </td>
                 <td class="px-6 py-4 text-sm font-medium text-slate-900">
                   {{ employee.name || '-' }}
+                </td>
+                <td class="px-6 py-4 text-center">
+                  <!-- Face Registration Status -->
+                  <span
+                    v-if="employee.has_face_registration"
+                    class="inline-flex items-center justify-center"
+                    title="Face registered"
+                  >
+                    <svg class="h-5 w-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                    </svg>
+                  </span>
+                  <span
+                    v-else
+                    class="inline-flex items-center justify-center"
+                    title="No face registered"
+                  >
+                    <svg class="h-5 w-5 text-slate-300" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                    </svg>
+                  </span>
+                </td>
+                <td class="px-6 py-4 text-right">
+                  <button
+                    @click="handleRegisterFace(employee)"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition"
+                    :class="employee.has_face_registration
+                      ? 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+                      : 'text-blue-700 bg-blue-50 hover:bg-blue-100'"
+                  >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    {{ employee.has_face_registration ? 'Update' : 'Register' }} Face
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -230,12 +272,23 @@
         </div>
       </div>
     </div>
+
+    <!-- Face Registration Dialog -->
+    <FaceRegistrationDialog
+      :is-open="showFaceDialog"
+      :employee="selectedEmployee"
+      :has-existing="selectedEmployee?.has_face_registration || false"
+      :registration-date="selectedEmployee?.face_registered_at || null"
+      @close="closeFaceDialog"
+      @success="handleFaceRegistrationSuccess"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import apiService from '../services/api.js'
+import FaceRegistrationDialog from './employee/FaceRegistrationDialog.vue'
 
 // State
 const allEmployees = ref([])          // All employees from API
@@ -249,6 +302,8 @@ const limit = 20
 // Dialog states
 const showConfirmDialog = ref(false)
 const showResultDialog = ref(false)
+const showFaceDialog = ref(false)
+const selectedEmployee = ref(null)
 const syncResult = ref({
   added_count: 0,
   updated_count: 0,
@@ -274,22 +329,70 @@ const fetchEmployees = async () => {
   isLoading.value = true
 
   try {
-    const result = await apiService.getEmployeesTimekeeper()
+    // Fetch employees from local database instead of API
+    if (!window.kioskBridge || !window.kioskBridge.getAllEmployeesFromDatabase) {
+      console.error('Bridge not available, cannot fetch employees')
+      allEmployees.value = []
+      filteredEmployees.value = []
+      isLoading.value = false
+      return
+    }
+
+    const resultJson = await window.kioskBridge.getAllEmployeesFromDatabase()
+    const result = JSON.parse(resultJson)
 
     if (result.success) {
       allEmployees.value = result.data || []
+      console.log(`📥 Loaded ${allEmployees.value.length} employees from local database`)
+
+      // No need to merge face registration status - it's already included!
       applyFilters()
     } else {
-      console.error('Failed to fetch employees:', result.message)
+      console.error('Failed to fetch employees from database:', result.error)
       allEmployees.value = []
       filteredEmployees.value = []
     }
   } catch (error) {
-    console.error('Error fetching employees:', error)
+    console.error('Error fetching employees from database:', error)
     allEmployees.value = []
     filteredEmployees.value = []
   } finally {
     isLoading.value = false
+  }
+}
+
+// Merge face registration status from local database
+const mergeFaceRegistrationStatus = async () => {
+  try {
+    if (!window.kioskBridge) return
+
+    const resultJson = await window.kioskBridge.getAllFaceRegistrationStatuses()
+    const result = JSON.parse(resultJson)
+
+    if (result.success && result.data) {
+      // Create a map for quick lookup
+      const faceStatusMap = new Map()
+      result.data.forEach(status => {
+        faceStatusMap.set(status.employee_number, {
+          has_face_registration: status.has_face_registration,
+          face_registered_at: status.face_registered_at
+        })
+      })
+
+      // Merge with employee data
+      allEmployees.value.forEach(emp => {
+        const faceStatus = faceStatusMap.get(emp.timekeeper_id)
+        if (faceStatus) {
+          emp.has_face_registration = faceStatus.has_face_registration
+          emp.face_registered_at = faceStatus.face_registered_at
+        } else {
+          emp.has_face_registration = false
+          emp.face_registered_at = null
+        }
+      })
+    }
+  } catch (error) {
+    console.error('Error merging face registration status:', error)
   }
 }
 
@@ -370,13 +473,69 @@ const handleRefreshFromLive = async () => {
       showResultDialog.value = true
     } else {
       console.error('Failed to sync employees:', result.message)
-      alert(`Sync failed: ${result.message}`)
     }
   } catch (error) {
     console.error('Error syncing employees:', error)
-    alert(`Sync error: ${error.message}`)
   } finally {
     isRefreshing.value = false
+  }
+}
+
+// Face registration handlers
+const handleRegisterFace = async (employee) => {
+  // First, we need to get the local database ID
+  // The employee object from API has 'id' which is the backend_id
+  // We need to query the bridge to get the local database employee ID
+
+  try {
+    // Query the bridge to get full employee info including local database ID
+    const resultJson = await window.kioskBridge.getEmployeeByNumber(employee.timekeeper_id)
+    const result = JSON.parse(resultJson)
+
+    if (result.success && result.employee) {
+      // Get face registration status
+      const statusJson = await window.kioskBridge.getFaceRegistrationStatus(result.employee.id)
+      const statusResult = JSON.parse(statusJson)
+
+      // Create employee object with all needed data
+      selectedEmployee.value = {
+        id: result.employee.id,  // Local database ID
+        backend_id: result.employee.backend_id,
+        name: result.employee.name,
+        employee_number: result.employee.employee_number,
+        has_face_registration: statusResult.has_registration || false,
+        face_registered_at: statusResult.registered_at || null
+      }
+
+      showFaceDialog.value = true
+    } else {
+      alert('Employee not found in local database. Please sync employees first.')
+    }
+  } catch (error) {
+    console.error('Error opening face registration:', error)
+  }
+}
+
+const closeFaceDialog = () => {
+  showFaceDialog.value = false
+  selectedEmployee.value = null
+}
+
+const handleFaceRegistrationSuccess = async () => {
+  // Reload employees to update face registration status
+  await fetchEmployees()
+
+  // Also update the selected employee's status in the list
+  if (selectedEmployee.value) {
+    const empIndex = allEmployees.value.findIndex(
+      e => e.timekeeper_id === selectedEmployee.value.employee_number
+    )
+
+    if (empIndex !== -1) {
+      allEmployees.value[empIndex].has_face_registration = true
+      allEmployees.value[empIndex].face_registered_at = new Date().toISOString()
+      applyFilters()
+    }
   }
 }
 

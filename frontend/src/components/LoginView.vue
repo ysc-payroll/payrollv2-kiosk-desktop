@@ -97,9 +97,55 @@
         </form>
       </div>
 
-      <!-- Version Info -->
-      <div class="mt-4 text-center">
+      <!-- Version Info & Reset Database -->
+      <div class="mt-4 text-center space-y-2">
+        <button
+          @click="handleResetDatabase"
+          :disabled="isResetting"
+          class="text-xs text-slate-500 hover:text-red-600 transition underline disabled:opacity-50"
+        >
+          {{ isResetting ? 'Resetting...' : 'Reset Database' }}
+        </button>
         <p class="text-xs text-slate-500">{{ appVersion }}</p>
+      </div>
+    </div>
+
+    <!-- Reset Confirmation Dialog -->
+    <div
+      v-if="showResetDialog"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      @click.self="showResetDialog = false"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
+        <div class="p-6">
+          <h3 class="text-lg font-semibold text-slate-900 mb-2">Reset Database?</h3>
+          <p class="text-sm text-slate-600 mb-4">
+            This will delete all local data including:
+          </p>
+          <ul class="text-sm text-slate-600 mb-4 space-y-1 pl-4">
+            <li>• All employee records</li>
+            <li>• All timesheet entries</li>
+            <li>• All face registrations</li>
+            <li>• Company information</li>
+          </ul>
+          <p class="text-sm text-red-600 font-medium">
+            This action cannot be undone!
+          </p>
+        </div>
+        <div class="flex gap-3 p-6 border-t border-slate-200">
+          <button
+            @click="showResetDialog = false"
+            class="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition"
+          >
+            Cancel
+          </button>
+          <button
+            @click="confirmResetDatabase"
+            class="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition"
+          >
+            Reset Database
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -131,6 +177,10 @@ const isLoading = ref(false)
 const errorMessage = ref('')
 const companyName = ref('ABBA Payroll')
 
+// Reset database state
+const showResetDialog = ref(false)
+const isResetting = ref(false)
+
 // Load company information
 const loadCompanyInfo = async () => {
   if (!kioskBridge) {
@@ -147,6 +197,41 @@ const loadCompanyInfo = async () => {
     }
   } catch (error) {
     console.error('Error loading company info:', error)
+  }
+}
+
+// Reset database handlers
+const handleResetDatabase = () => {
+  showResetDialog.value = true
+}
+
+const confirmResetDatabase = async () => {
+  // Use the module-level kioskBridge or window.kioskBridge as fallback
+  const bridge = kioskBridge || window.kioskBridge
+
+  if (!bridge) {
+    alert('Bridge not available. Please ensure the application is running in desktop mode.')
+    showResetDialog.value = false
+    return
+  }
+
+  isResetting.value = true
+  showResetDialog.value = false
+
+  try {
+    const resultJson = await bridge.resetDatabase()
+    const result = JSON.parse(resultJson)
+
+    if (result.success) {
+      alert('Database reset successfully!')
+    } else {
+      alert(`Failed to reset database: ${result.message}`)
+    }
+  } catch (error) {
+    console.error('Error resetting database:', error)
+    alert('Error resetting database. See console for details.')
+  } finally {
+    isResetting.value = false
   }
 }
 
@@ -255,6 +340,7 @@ onMounted(() => {
   if (window.qt && window.qt.webChannelTransport) {
     new window.QWebChannel(window.qt.webChannelTransport, (channel) => {
       kioskBridge = channel.objects.kioskBridge
+      window.kioskBridge = kioskBridge  // Make it globally accessible
       console.log('PyQt bridge connected in LoginView')
 
       // Load company info after bridge is ready
