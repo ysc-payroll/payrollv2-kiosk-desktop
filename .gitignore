@@ -1,8 +1,53 @@
-backend/database/
-photos
+# Backend - User data and database
+backend/database/kiosk.db
+backend/database/photos/
+backend/database/faces/
+backend/database/temp/
+
+# Backend - Build artifacts
 backend/dist/
-backend/venv/
 backend/build/
 backend/__pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Backend - Python virtual environment
+backend/venv/
+backend/env/
+
+# Frontend - Dependencies and build
 frontend/node_modules/
+frontend/dist/
+
+# Frontend - Development/backup files
+frontend/src/services/api.old.js
+frontend/src/services/*.old.js
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+logs/
+
+# Export files
+*.csv
+*.xlsx
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+.python-version
+*.egg-info/
+
+# Temporary files
+*.tmp
+temp/
