@@ -4,17 +4,49 @@ Handles SQLite connection and kiosk_logs table operations.
 """
 import sqlite3
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
 
+def get_app_data_dir():
+    """
+    Get the application data directory (writable location).
+
+    Returns:
+        Path: Writable directory for app data
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle - use Application Support directory
+        if sys.platform == 'darwin':
+            # macOS: ~/Library/Application Support/TimekeeperPayroll
+            app_support = Path.home() / "Library" / "Application Support" / "TimekeeperPayroll"
+        elif sys.platform == 'win32':
+            # Windows: %APPDATA%\TimekeeperPayroll
+            app_support = Path(os.environ['APPDATA']) / "TimekeeperPayroll"
+        else:
+            # Linux: ~/.local/share/TimekeeperPayroll
+            app_support = Path.home() / ".local" / "share" / "TimekeeperPayroll"
+
+        app_support.mkdir(parents=True, exist_ok=True)
+        return app_support
+    else:
+        # Running in development - use local database directory
+        return Path(__file__).parent / "database"
+
+
 class Database:
-    def __init__(self, db_path="database/kiosk.db"):
+    def __init__(self, db_path=None):
         """Initialize database connection and ensure schema exists."""
-        self.db_path = db_path
+        if db_path is None:
+            # Use writable app data directory
+            data_dir = get_app_data_dir()
+            self.db_path = str(data_dir / "kiosk.db")
+        else:
+            self.db_path = db_path
 
         # Ensure database directory exists
-        db_dir = Path(db_path).parent
+        db_dir = Path(self.db_path).parent
         db_dir.mkdir(parents=True, exist_ok=True)
 
         # Ensure photos directory exists

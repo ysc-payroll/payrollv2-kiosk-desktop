@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSlot
 from PyQt6.QtWidgets import QFileDialog
-from database import Database
+from database import Database, get_app_data_dir
 
 
 class KioskBridge(QObject):
@@ -79,8 +79,9 @@ class KioskBridge(QObject):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{employee_id}_{action}_{timestamp}.png"
 
-        # Save to photos directory
-        photos_dir = Path("database/photos")
+        # Save to photos directory in app data dir
+        data_dir = get_app_data_dir()
+        photos_dir = data_dir / "photos"
         photos_dir.mkdir(parents=True, exist_ok=True)
 
         photo_path = photos_dir / filename
@@ -853,9 +854,10 @@ class KioskBridge(QObject):
             # Decode base64
             photo_bytes = base64.b64decode(photo_base64)
 
-            # Save photo to faces directory
+            # Save photo to faces directory in app data dir
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            faces_dir = Path("database/faces")
+            data_dir = get_app_data_dir()
+            faces_dir = data_dir / "faces"
             faces_dir.mkdir(parents=True, exist_ok=True)
 
             photo_filename = f"employee_{employee_id}_{timestamp}.png"
@@ -948,9 +950,10 @@ class KioskBridge(QObject):
             # Decode base64
             photo_bytes = base64.b64decode(photo_base64)
 
-            # Save temporary photo
+            # Save temporary photo in app data dir
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            temp_dir = Path("database/temp")
+            data_dir = get_app_data_dir()
+            temp_dir = data_dir / "temp"
             temp_dir.mkdir(parents=True, exist_ok=True)
 
             temp_photo_path = temp_dir / f"recognize_{timestamp}.png"

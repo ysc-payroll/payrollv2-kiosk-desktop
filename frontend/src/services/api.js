@@ -3,7 +3,7 @@
  * Handles all HTTP requests to the backend API with JWT authentication
  */
 
-const API_BASE_URL = 'http://localhost:8000'
+const API_BASE_URL = 'https://theabbapayroll.com'
 
 class ApiService {
   constructor() {
@@ -67,6 +67,12 @@ class ApiService {
     if (this.accessToken && !options.skipAuth) {
       headers['Authorization'] = `Bearer ${this.accessToken}`
     }
+
+    // Add custom headers to identify desktop app (for CORS security)
+    headers['X-Timekeeper-Desktop'] = 'true'
+    headers['X-App-Version'] = '2.0.0'
+    // Secret token - change this periodically for security
+    headers['X-App-Secret'] = 'tk-desktop-2024-secure-token'
 
     // Make request
     const config = {
