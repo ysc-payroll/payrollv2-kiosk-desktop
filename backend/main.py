@@ -5,8 +5,10 @@ Creates fullscreen kiosk window with embedded Vue.js frontend.
 import sys
 import os
 import logging
+import threading
 from pathlib import Path
 from datetime import datetime
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
@@ -34,6 +36,54 @@ logger.info(f"Frozen (PyInstaller): {getattr(sys, 'frozen', False)}")
 if getattr(sys, 'frozen', False):
     logger.info(f"_MEIPASS: {sys._MEIPASS}")
 logger.info("="*80)
+
+
+class LocalHTTPRequestHandler(SimpleHTTPRequestHandler):
+    """Custom HTTP request handler for serving frontend files."""
+
+    def __init__(self, *args, directory=None, **kwargs):
+        self.directory_to_serve = directory
+        super().__init__(*args, directory=directory, **kwargs)
+
+    def log_message(self, format, *args):
+        """Override to use our logger instead of printing to stderr."""
+        logger.debug(f"HTTP: {format % args}")
+
+
+def start_local_server(directory, port=8765):
+    """
+    Start a local HTTP server to serve frontend files.
+    This solves CORS issues by serving from http://localhost instead of file://
+
+    Args:
+        directory: Path to the directory to serve (frontend/dist)
+        port: Port number (default: 8765)
+
+    Returns:
+        HTTPServer instance
+    """
+    logger.info(f"Starting local HTTP server on port {port}")
+    logger.info(f"Serving directory: {directory}")
+
+    handler = lambda *args, **kwargs: LocalHTTPRequestHandler(
+        *args, directory=str(directory), **kwargs
+    )
+
+    try:
+        server = HTTPServer(('localhost', port), handler)
+
+        # Start server in daemon thread (will exit when main app exits)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        logger.info(f"✅ Local HTTP server started successfully on http://localhost:{port}")
+        return server
+
+    except OSError as e:
+        if e.errno == 48:  # Address already in use
+            logger.error(f"❌ Port {port} is already in use!")
+            logger.error("Another instance might be running or another app is using this port")
+        raise
 
 
 class KioskWindow(QMainWindow):
@@ -132,30 +182,34 @@ class KioskWindow(QMainWindow):
         self.channel.registerObject("kioskBridge", self.bridge)
 
     def load_frontend(self):
-        """Load the Vue.js frontend from the dist folder or dev server."""
+        """Load the Vue.js frontend from local HTTP server or dev server."""
         logger.info("load_frontend() starting")
         try:
             # Check if running from PyInstaller bundle
             if getattr(sys, 'frozen', False):
                 # Running in PyInstaller bundle
                 base_path = Path(sys._MEIPASS)
-                frontend_dist = base_path / "frontend" / "dist" / "index.html"
+                frontend_dist = base_path / "frontend" / "dist"
                 logger.info(f"Running in PyInstaller bundle, base_path: {base_path}")
             else:
                 # Running in normal Python environment
                 base_path = Path(__file__).parent.parent
-                frontend_dist = base_path / "frontend" / "dist" / "index.html"
+                frontend_dist = base_path / "frontend" / "dist"
                 logger.info(f"Running in normal Python, base_path: {base_path}")
 
-            logger.info(f"Looking for frontend at: {frontend_dist}")
-            logger.info(f"Frontend file exists: {frontend_dist.exists()}")
+            logger.info(f"Looking for frontend directory at: {frontend_dist}")
+            logger.info(f"Frontend directory exists: {frontend_dist.exists()}")
 
             if frontend_dist.exists():
-                # Load production build
-                url = QUrl.fromLocalFile(str(frontend_dist.absolute()))
-                logger.info(f"Loading production build from: {frontend_dist}")
-                logger.info(f"QUrl: {url.toString()}")
-                self.browser.setUrl(url)
+                # Start local HTTP server to serve frontend
+                # This solves CORS issues by using http://localhost instead of file://
+                port = 8765
+                self.http_server = start_local_server(frontend_dist, port=port)
+
+                # Load from local HTTP server
+                url = f"http://localhost:{port}/index.html"
+                logger.info(f"✅ Loading frontend from local HTTP server: {url}")
+                self.browser.setUrl(QUrl(url))
                 logger.info("Frontend URL set in browser")
             else:
                 # Load from Vite dev server (default: http://localhost:5173)

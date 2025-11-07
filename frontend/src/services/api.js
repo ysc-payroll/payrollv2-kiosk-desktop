@@ -68,11 +68,9 @@ class ApiService {
       headers['Authorization'] = `Bearer ${this.accessToken}`
     }
 
-    // Add custom headers to identify desktop app (for CORS security)
     headers['X-Timekeeper-Desktop'] = 'true'
     headers['X-App-Version'] = '2.0.0'
-    // Secret token - change this periodically for security
-    headers['X-App-Secret'] = 'tk-desktop-2024-secure-token'
+    headers['X-App-Secret'] = '0PyX2b4ATZ8A73BDbfA6QENRant-pBylVML6QO6fBc0'
 
     // Make request
     const config = {
