@@ -528,7 +528,6 @@ class KioskBridge(QObject):
                     synced_count += 1
 
                 except Exception as e:
-                    print(f"Error syncing employee {emp.get('system_id')}: {e}")
                     skipped_count += 1
                     continue
 
@@ -633,7 +632,6 @@ class KioskBridge(QObject):
                         added_count += 1
 
                 except Exception as e:
-                    print(f"Error syncing employee {emp.get('id')}: {e}")
                     skipped_count += 1
                     skipped_details.append({
                         "backend_id": emp.get('id'),
@@ -644,7 +642,6 @@ class KioskBridge(QObject):
 
             # Step 3: Soft-delete employees not in API list
             # Find employees that are NOT in the API list and NOT already soft-deleted
-            print(f"API returned {len(api_backend_ids)} employees")
 
             if api_backend_ids:
                 placeholders = ','.join('?' * len(api_backend_ids))
@@ -662,17 +659,14 @@ class KioskBridge(QObject):
                 """)
 
             employees_to_delete = cursor.fetchall()
-            print(f"Found {len(employees_to_delete)} employees to potentially delete")
 
             for emp_id, backend_id, name in employees_to_delete:
-                print(f"Checking employee for deletion: {name} (backend_id: {backend_id})")
 
                 # Check if employee has application records
                 has_records, record_types = self.db.check_employee_has_applications(backend_id)
 
                 if has_records:
                     # Skip deletion if employee has records
-                    print(f"  -> Skipped (has records: {record_types})")
                     skipped_count += 1
                     skipped_details.append({
                         "backend_id": backend_id,
@@ -681,7 +675,6 @@ class KioskBridge(QObject):
                     })
                 else:
                     # Soft-delete the employee
-                    print(f"  -> Soft-deleting")
                     cursor.execute("""
                         UPDATE employee
                         SET deleted_at = ?
@@ -1067,7 +1060,7 @@ class KioskBridge(QObject):
                     try:
                         os.remove(photo_path)
                     except Exception as e:
-                        print(f"Warning: Could not delete photo file: {e}")
+                        pass
 
                 return json.dumps({
                     "success": True,
