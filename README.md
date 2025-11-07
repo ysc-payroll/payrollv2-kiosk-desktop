@@ -1,199 +1,201 @@
-# Timekeeper Kiosk Application - Phase 1 MVP
+# Timekeeper Payroll v2.0
 
-Employee Self-Service (ESS) Kiosk application for Time IN/OUT with automatic photo capture.
+Desktop kiosk application for employee time tracking, overtime requests, leave management, and payroll integration.
+
+## Overview
+
+Timekeeper Payroll is a cross-platform desktop application built with PyQt6 and Vue.js. It provides a kiosk-style interface for employees to:
+
+- Clock in/out with facial recognition
+- Submit overtime requests
+- File leave applications
+- View personal timesheet records
+- Access company announcements
+
+The application runs offline-first with local SQLite storage and syncs with a cloud backend API.
 
 ## Technology Stack
 
-- **Backend**: Python 3.10+ with PyQt6
+- **Desktop Runtime**: Python 3.10+ with PyQt6
 - **Frontend**: Vue.js 3 + Vite + TailwindCSS
-- **Database**: SQLite (local storage)
-- **Camera**: WebRTC (getUserMedia API)
-- **Architecture**: Monorepo with PyQt WebView hosting Vue.js frontend
+- **Local Database**: SQLite
+- **Camera/Facial Recognition**: WebRTC + face-api.js
+- **API Communication**: REST API with custom authentication headers
+- **Packaging**: PyInstaller (macOS .app bundle and .dmg installer)
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10 or higher
+- Node.js 18 or higher
+- Webcam/camera access
+
+### Installation
+
+1. **Backend Setup**
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # On macOS/Linux
+# or: venv\Scripts\activate on Windows
+pip install -r requirements.txt
+```
+
+2. **Frontend Setup**
+```bash
+cd frontend
+npm install
+```
+
+### Running in Development Mode
+
+**Option 1: Using the dev script**
+```bash
+./run_dev.sh
+```
+
+**Option 2: Manual (two terminals)**
+
+Terminal 1 - Frontend dev server:
+```bash
+cd frontend
+npm run dev
+```
+
+Terminal 2 - PyQt application:
+```bash
+cd backend
+source venv/bin/activate
+python main.py
+```
+
+The app will open in fullscreen kiosk mode and load the Vue.js frontend from http://localhost:8765 (local HTTP server).
+
+### Building for Production
+
+1. **Build the frontend**
+```bash
+cd frontend
+npm run build
+```
+
+2. **Build the PyQt application**
+```bash
+cd backend
+pyinstaller timekeeper.spec
+```
+
+This creates `dist/Timekeeper Payroll.app` on macOS.
+
+3. **Create DMG installer (macOS only)**
+```bash
+./create_dmg.sh
+```
+
+This creates `dist/TimekeeperPayroll-v2.0.0.dmg` (approximately 197MB).
 
 ## Project Structure
 
 ```
 timekeeper-payroll-v2/
 ├── backend/
-│   ├── main.py           # PyQt6 application entry point
-│   ├── database.py       # SQLite operations
-│   ├── bridge.py         # Python-JS bridge (QWebChannel)
-│   └── requirements.txt  # Python dependencies
+│   ├── main.py              # PyQt6 application entry point
+│   ├── bridge.py            # Python-JavaScript bridge (QWebChannel)
+│   ├── database.py          # SQLite database operations
+│   ├── timekeeper.spec      # PyInstaller build configuration
+│   ├── requirements.txt     # Python dependencies
+│   └── database/            # SQLite database and stored photos
 ├── frontend/
 │   ├── src/
-│   │   ├── App.vue                      # Main kiosk screen
-│   │   ├── components/
-│   │   │   ├── CameraView.vue          # WebRTC camera
-│   │   │   ├── NumericKeypad.vue       # Input keypad
-│   │   │   └── ToastNotification.vue   # Notifications
-│   │   └── style.css                    # TailwindCSS
-│   ├── package.json
-│   └── vite.config.js
-└── database/             # SQLite database and photos
-    ├── kiosk.db
-    └── photos/
+│   │   ├── App.vue          # Main application component
+│   │   ├── router.js        # Vue Router configuration
+│   │   ├── services/
+│   │   │   └── api.js       # API service with authentication
+│   │   ├── views/           # Main application screens
+│   │   └── components/      # Reusable Vue components
+│   ├── dist/                # Built frontend (after npm run build)
+│   └── package.json
+├── icons/
+│   └── icon.icns           # Application icon for macOS
+└── create_dmg.sh           # Script to create DMG installer
 ```
 
-## Setup Instructions
+## Key Features
 
-### 1. Backend Setup (Python)
+### Implemented
+- ✅ Employee clock in/out with facial recognition
+- ✅ Photo capture and storage
+- ✅ Offline-first local database
+- ✅ Overtime request submission
+- ✅ Leave application filing
+- ✅ Personal timesheet viewing
+- ✅ Company announcements
+- ✅ Employee sync from cloud API
+- ✅ Fullscreen kiosk mode
+- ✅ Cloud API integration with custom authentication
 
-```bash
-cd backend
+### Security Features
+- Custom authentication headers (X-Timekeeper-Desktop, X-App-Version, X-App-Secret)
+- CORS-compliant API communication via localhost HTTP server
+- Secure token-based authentication
+- Camera permissions handling
 
-# Create virtual environment
-python3 -m venv venv
+## Configuration
 
-# Activate virtual environment
-source venv/bin/activate  # On macOS/Linux
-# or
-venv\Scripts\activate     # On Windows
+### API Endpoint
+The application connects to: `https://api.theabbapayroll.com`
 
-# Install dependencies
-pip install -r requirements.txt
+To change the API endpoint, edit:
+```javascript
+// frontend/src/services/api.js
+const BASE_URL = 'https://api.theabbapayroll.com'
 ```
 
-### 2. Frontend Setup (Vue.js)
-
-```bash
-cd frontend
-
-# Install dependencies (already done if you ran npm install earlier)
-npm install
-
-# Build for production
-npm run build
-```
-
-## Running the Application
-
-### Option 1: Development Mode (Recommended for testing)
-
-**Terminal 1 - Frontend Dev Server:**
-```bash
-cd frontend
-npm run dev
-```
-This starts Vite dev server at http://localhost:5173
-
-**Terminal 2 - Python Application:**
-```bash
-cd backend
-source venv/bin/activate  # Activate virtual environment
-python main.py
-```
-
-The PyQt window will load the Vue.js app from the dev server.
-
-### Option 2: Production Mode
-
-```bash
-# Build frontend first
-cd frontend
-npm run build
-
-# Run Python application
-cd ../backend
-source venv/bin/activate
-python main.py
-```
-
-The PyQt window will load the built Vue.js app from `frontend/dist/`.
-
-## Testing the Application
-
-### Basic Functionality Test
-
-1. **Camera Check**
-   - Camera preview should appear at the top of the screen
-   - Allow camera permissions when prompted
-
-2. **Employee ID Input**
-   - Click numbers on the keypad
-   - Verify input appears in the text field
-   - Test backspace (←) and clear (CLR) buttons
-
-3. **Clock IN**
-   - Enter employee ID (e.g., "12345")
-   - Click "IN" button
-   - Photo is captured automatically
-   - Success toast appears
-   - Input field clears
-
-4. **Clock OUT**
-   - Enter employee ID
-   - Click "OUT" button
-   - Verify same behavior as Clock IN
-
-5. **Database Verification**
-   - Check that `database/kiosk.db` was created
-   - Check that photos are saved in `database/photos/`
-   - You can inspect the database with SQLite browser or command:
-     ```bash
-     sqlite3 database/kiosk.db "SELECT * FROM kiosk_logs;"
-     ```
-
-### Browser Testing (Without PyQt)
-
-You can test the frontend independently:
-
-```bash
-cd frontend
-npm run dev
-```
-
-Open http://localhost:5173 in your browser. The app will run in "browser mode" and simulate database operations in the console.
-
-## Phase 1 Features Delivered
-
-✅ Time IN/OUT functionality
-✅ Live camera preview (WebRTC)
-✅ Automatic photo capture
-✅ Local SQLite database storage
-✅ Toast notifications (success/error)
-✅ Numeric keypad input
-✅ Offline-first design (no network required)
-✅ Fullscreen kiosk mode
-✅ Fast throughput (auto-reset after entry)
-
-## Keyboard Shortcuts (Development)
-
-- **ESC**: Exit fullscreen / Close application
+### Custom Headers
+The app sends these custom headers for authentication:
+- `X-Timekeeper-Desktop: true`
+- `X-App-Version: 2.0.0`
+- `X-App-Secret: [secret-token]`
 
 ## Troubleshooting
 
 ### Camera Not Working
-- Ensure camera permissions are granted
+- Ensure camera permissions are granted in System Preferences > Security & Privacy
 - Check if another app is using the camera
-- Try reloading the application
+- Reset permissions: `tccutil reset Camera "com.theabba.timekeeper-payroll"`
 
-### PyQt Bridge Not Connected
-- Make sure you're running through PyQt (not just browser)
-- Check browser console for "PyQt bridge connected" message
-- In browser mode, it will show "Browser mode - simulating success"
+### CORS Errors
+- Ensure backend server has `http://localhost:8765` in CORS allowed origins
+- Check that the local HTTP server is running (started automatically by main.py)
 
-### Database Errors
-- Check that `database/` directory has write permissions
-- Verify SQLite is working: `python -c "import sqlite3; print('OK')"`
+### Build Issues
+- Clear old builds: `rm -rf backend/dist backend/build`
+- Rebuild frontend: `cd frontend && rm -rf dist && npm run build`
+- Verify PyInstaller spec file includes all resources
 
-### Build Errors
-- Clear node_modules and reinstall: `rm -rf node_modules && npm install`
-- Clear Python cache: `find . -type d -name __pycache__ -exec rm -r {} +`
+### App Won't Launch
+- Check for port conflicts (port 8765 must be available)
+- View debug logs at: `~/Desktop/timekeeper_debug.log`
+- Run with console: change `console=False` to `console=True` in timekeeper.spec
 
-## Next Steps (Phase 2+)
+## Keyboard Shortcuts (Development)
 
-- [ ] More Options menu with PIN authentication
-- [ ] Overtime/Leave filing forms
-- [ ] Recent logs display
-- [ ] Holiday announcements
-- [ ] Background sync to API server
-- [ ] Employee data caching
-- [ ] Admin configuration settings
+- **F12**: Open Developer Tools
+- **ESC**: Exit fullscreen / Close application
+
+## Distribution
+
+The built `.dmg` installer can be distributed to end users. They simply:
+1. Open the DMG file
+2. Drag "Timekeeper Payroll.app" to Applications folder
+3. Launch the app
+4. Grant camera permissions when prompted
+
+## Support
+
+For technical issues or questions, refer to DEVELOPMENT.md for detailed technical documentation.
 
 ## License
 
 Internal use only - All rights reserved
-
-## Support
-
-For issues or questions, contact the development team.
