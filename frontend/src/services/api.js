@@ -3,7 +3,7 @@
  * Handles all HTTP requests to the backend API with JWT authentication
  */
 
-const API_BASE_URL = 'https://theabbapayroll.com'
+const API_BASE_URL = 'https://api.theabbapayroll.com'
 
 class ApiService {
   constructor() {
