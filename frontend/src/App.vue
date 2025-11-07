@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import CameraView from './components/CameraView.vue'
 import NumericKeypad from './components/NumericKeypad.vue'
 import ToastNotification from './components/ToastNotification.vue'
+import ToastContainer from './components/shared/ToastContainer.vue'
 import LoginView from './components/LoginView.vue'
 import EmployeeList from './components/EmployeeList.vue'
 import OvertimeView from './components/OvertimeView.vue'
@@ -1741,6 +1742,9 @@ onBeforeUnmount(() => {
       :duration="3000"
       @close="handleToastClose"
     />
+
+    <!-- Global Toast Container for Application Modules -->
+    <ToastContainer />
   </div>
 </template>
 

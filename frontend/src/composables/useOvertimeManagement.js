@@ -14,9 +14,15 @@ export function useOvertimeManagement() {
     approvalsPrefix: 'approvals_overtime'
   })
 
-  // Return base composable with alias for clarity
+  // Return base composable with aliases for clarity
   return {
     ...base,
-    overtimeApplications: base.applications
+    overtimeApplications: base.applications,
+    fetchOvertimeApplications: base.fetchApplications,
+    createOvertime: base.createApplication,
+    updateOvertime: base.updateApplication,
+    deleteOvertime: base.deleteApplication,
+    cancelOvertime: base.cancelApplication,
+    getOvertimeById: base.getApplicationById
   }
 }

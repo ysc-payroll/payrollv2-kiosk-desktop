@@ -38,10 +38,16 @@ export function useLeaveManagement() {
     }
   }
 
-  // Return base composable + leave-specific features
+  // Return base composable + leave-specific features with aliases
   return {
     ...base,
     leaveApplications: base.applications,
+    fetchLeaveApplications: base.fetchApplications,
+    createLeave: base.createApplication,
+    updateLeave: base.updateApplication,
+    deleteLeave: base.deleteApplication,
+    cancelLeave: base.cancelApplication,
+    getLeaveById: base.getApplicationById,
     leaveTypes,
     isLoadingLeaveTypes,
     fetchLeaveTypes

@@ -14,9 +14,15 @@ export function useUndertimeManagement() {
     approvalsPrefix: 'approvals_undertime'
   })
 
-  // Return base composable with alias for clarity
+  // Return base composable with aliases for clarity
   return {
     ...base,
-    undertimeApplications: base.applications
+    undertimeApplications: base.applications,
+    fetchUndertimeApplications: base.fetchApplications,
+    createUndertime: base.createApplication,
+    updateUndertime: base.updateApplication,
+    deleteUndertime: base.deleteApplication,
+    cancelUndertime: base.cancelApplication,
+    getUndertimeById: base.getApplicationById
   }
 }

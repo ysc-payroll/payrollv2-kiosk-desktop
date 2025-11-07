@@ -258,6 +258,7 @@ const handleEdit = async (record) => {
     modalMode.value = 'edit'
     isModalOpen.value = true
   }
+  // Error is already handled by errorHandler in composable
 }
 
 // Handle form submission
@@ -272,20 +273,18 @@ const handleSubmit = async (payload) => {
 
   if (result.success) {
     closeModal()
-    console.log(result.message)
-  } else {
-    console.error(result.message)
   }
+  // Success/error messages are handled by errorHandler in composable
 }
 
 // Handle export
 const handleExport = async () => {
   const result = await exportToCSV()
   if (result.success) {
-    console.log(result.message)
-  } else {
-    console.error(result.message)
+    // Success message is handled by errorHandler in composable
+    // TODO: Trigger CSV download
   }
+  // Error is handled by errorHandler in composable
 }
 
 // Lifecycle

@@ -3,6 +3,16 @@
  * Provides clean, organized access to all API services
  */
 
+// Import services
+import authServiceInstance from './auth.service.js'
+import employeeServiceInstance from './employee.service.js'
+import timesheetServiceInstance from './timesheet.service.js'
+import overtimeServiceInstance from './overtime.service.js'
+import holidayServiceInstance from './holiday.service.js'
+import restdayServiceInstance from './restday.service.js'
+import undertimeServiceInstance from './undertime.service.js'
+import leaveServiceInstance from './leave.service.js'
+
 // Export HTTP client
 export { default as httpClient } from '../http-client.js'
 
@@ -25,12 +35,12 @@ export { BaseCrudService } from './base.service.js'
  *        api.auth.login(email, password)
  */
 export default {
-  auth: authService,
-  employee: employeeService,
-  timesheet: timesheetService,
-  overtime: overtimeService,
-  holiday: holidayService,
-  restday: restdayService,
-  undertime: undertimeService,
-  leave: leaveService
+  auth: authServiceInstance,
+  employee: employeeServiceInstance,
+  timesheet: timesheetServiceInstance,
+  overtime: overtimeServiceInstance,
+  holiday: holidayServiceInstance,
+  restday: restdayServiceInstance,
+  undertime: undertimeServiceInstance,
+  leave: leaveServiceInstance
 }

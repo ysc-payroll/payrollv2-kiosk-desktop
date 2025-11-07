@@ -54,15 +54,20 @@ class UndertimeService extends BaseCrudService {
   }
 
   /**
-   * Create new undertime application
+   * Create new undertime application (override to use FormData)
    */
   async create(data) {
     try {
-      const response = await this.http.post(`${this.endpoint}/`, {
-        employee: data.employee,
-        application_date: data.application_date,
-        reason: data.reason
-      })
+      // Use FormData for file upload
+      const formData = new FormData()
+      formData.append('employee', data.employee)
+      formData.append('application_date', data.application_date)
+      formData.append('applied_time_hours', data.applied_time_hours || 0)
+      formData.append('applied_time_minutes', data.applied_time_minutes || 0)
+      if (data.reason) formData.append('reason', data.reason)
+      if (data.attachment) formData.append('attachment', data.attachment)
+
+      const response = await this.http.post(`${this.endpoint}/`, formData)
 
       return {
         success: true,
@@ -79,14 +84,23 @@ class UndertimeService extends BaseCrudService {
   }
 
   /**
-   * Update undertime application
+   * Update undertime application (override to use FormData)
    */
   async update(id, data) {
     try {
-      const response = await this.http.patch(`${this.endpoint}/${id}/`, {
-        employee: data.employee,
-        application_date: data.application_date,
-        reason: data.reason
+      // Use FormData for file upload
+      const formData = new FormData()
+      if (data.employee) formData.append('employee', data.employee)
+      if (data.application_date) formData.append('application_date', data.application_date)
+      if (data.applied_time_hours !== undefined) formData.append('applied_time_hours', data.applied_time_hours)
+      if (data.applied_time_minutes !== undefined) formData.append('applied_time_minutes', data.applied_time_minutes)
+      if (data.reason) formData.append('reason', data.reason)
+      if (data.attachment) formData.append('attachment', data.attachment)
+
+      const response = await this.http.request(`${this.endpoint}/${id}/`, {
+        method: 'POST',
+        body: formData,
+        headers: {}
       })
 
       return {

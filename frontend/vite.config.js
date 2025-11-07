@@ -5,4 +5,8 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   base: './',  // Use relative paths for assets (needed for PyQt6 file:// URLs)
+  build: {
+    minify: false,  // Disable minification for easier debugging
+    sourcemap: true  // Enable source maps
+  }
 })

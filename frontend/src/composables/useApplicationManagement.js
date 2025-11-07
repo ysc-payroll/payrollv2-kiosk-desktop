@@ -6,6 +6,7 @@
 
 import { ref, computed } from 'vue'
 import apiService from '../services/api.js'
+import errorHandler from '../services/errorHandler.js'
 
 /**
  * Create an application management composable
@@ -134,11 +135,19 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
         totalPages.value = result.totalPages || 1
         currentPage.value = result.currentPage || 1
       } else {
-        console.error(`Error fetching ${resourceType} applications:`, result.message)
+        errorHandler.handle(new Error(result.message), {
+          context: `Fetch ${resourceType} applications`,
+          operation: 'fetch',
+          showToast: false // Don't show toast for list fetch errors
+        })
         applications.value = []
       }
     } catch (error) {
-      console.error(`Error fetching ${resourceType} applications:`, error)
+      errorHandler.handle(error, {
+        context: `Fetch ${resourceType} applications`,
+        operation: 'fetch',
+        showToast: false
+      })
       applications.value = []
     } finally {
       isLoading.value = false
@@ -165,13 +174,20 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
       const result = await serviceApi.create(applicationData)
       if (result.success) {
         await fetchApplications()
-        return { success: true, message: `${capitalize(resourceType)} created successfully` }
+        return errorHandler.handleSuccess(`${capitalize(resourceType)} created successfully`)
       } else {
-        return { success: false, message: result.message || 'Failed to create application' }
+        return errorHandler.handle(new Error(result.message), {
+          context: `Create ${resourceType}`,
+          operation: 'create',
+          showToast: true
+        })
       }
     } catch (error) {
-      console.error(`Error creating ${resourceType}:`, error)
-      return { success: false, message: error.message || 'Failed to create application' }
+      return errorHandler.handle(error, {
+        context: `Create ${resourceType}`,
+        operation: 'create',
+        showToast: true
+      })
     } finally {
       isSaving.value = false
     }
@@ -184,13 +200,20 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
       const result = await serviceApi.update(id, applicationData)
       if (result.success) {
         await fetchApplications()
-        return { success: true, message: `${capitalize(resourceType)} updated successfully` }
+        return errorHandler.handleSuccess(`${capitalize(resourceType)} updated successfully`)
       } else {
-        return { success: false, message: result.message || 'Failed to update application' }
+        return errorHandler.handle(new Error(result.message), {
+          context: `Update ${resourceType}`,
+          operation: 'update',
+          showToast: true
+        })
       }
     } catch (error) {
-      console.error(`Error updating ${resourceType}:`, error)
-      return { success: false, message: error.message || 'Failed to update application' }
+      return errorHandler.handle(error, {
+        context: `Update ${resourceType}`,
+        operation: 'update',
+        showToast: true
+      })
     } finally {
       isSaving.value = false
     }
@@ -203,13 +226,20 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
       const result = await serviceApi.delete(id)
       if (result.success) {
         await fetchApplications()
-        return { success: true, message: `${capitalize(resourceType)} deleted successfully` }
+        return errorHandler.handleSuccess(`${capitalize(resourceType)} deleted successfully`)
       } else {
-        return { success: false, message: result.message || 'Failed to delete application' }
+        return errorHandler.handle(new Error(result.message), {
+          context: `Delete ${resourceType}`,
+          operation: 'delete',
+          showToast: true
+        })
       }
     } catch (error) {
-      console.error(`Error deleting ${resourceType}:`, error)
-      return { success: false, message: error.message || 'Failed to delete application' }
+      return errorHandler.handle(error, {
+        context: `Delete ${resourceType}`,
+        operation: 'delete',
+        showToast: true
+      })
     } finally {
       isSaving.value = false
     }
@@ -222,15 +252,44 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
       const result = await serviceApi.cancel(id, remarks)
       if (result.success) {
         await fetchApplications()
-        return { success: true, message: `${capitalize(resourceType)} cancelled successfully` }
+        return errorHandler.handleSuccess(`${capitalize(resourceType)} cancelled successfully`)
       } else {
-        return { success: false, message: result.message || 'Failed to cancel application' }
+        return errorHandler.handle(new Error(result.message), {
+          context: `Cancel ${resourceType}`,
+          operation: 'cancel',
+          showToast: true
+        })
       }
     } catch (error) {
-      console.error(`Error cancelling ${resourceType}:`, error)
-      return { success: false, message: error.message || 'Failed to cancel application' }
+      return errorHandler.handle(error, {
+        context: `Cancel ${resourceType}`,
+        operation: 'cancel',
+        showToast: true
+      })
     } finally {
       isSaving.value = false
+    }
+  }
+
+  // Get application by ID
+  const getApplicationById = async (id) => {
+    try {
+      const result = await serviceApi.getById(id)
+      if (result.success) {
+        return { success: true, data: result.data }
+      } else {
+        return errorHandler.handle(new Error(result.message), {
+          context: `Fetch ${resourceType} details`,
+          operation: 'get_by_id',
+          showToast: true
+        })
+      }
+    } catch (error) {
+      return errorHandler.handle(error, {
+        context: `Fetch ${resourceType} details`,
+        operation: 'get_by_id',
+        showToast: true
+      })
     }
   }
 
@@ -240,13 +299,20 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
     try {
       const result = await serviceApi.exportToCSV(filters.value)
       if (result.success) {
-        return { success: true, csv: result.csv }
+        return { success: true, csv: result.csv, message: 'Export completed successfully' }
       } else {
-        return { success: false, message: result.message || 'Failed to export' }
+        return errorHandler.handle(new Error(result.message), {
+          context: `Export ${resourceType}`,
+          operation: 'export',
+          showToast: true
+        })
       }
     } catch (error) {
-      console.error(`Error exporting ${resourceType}:`, error)
-      return { success: false, message: error.message || 'Failed to export' }
+      return errorHandler.handle(error, {
+        context: `Export ${resourceType}`,
+        operation: 'export',
+        showToast: true
+      })
     } finally {
       isExporting.value = false
     }
@@ -323,6 +389,7 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
     updateApplication,
     deleteApplication,
     cancelApplication,
+    getApplicationById,
     exportToCSV,
     goToPage,
     nextPage,

@@ -3,8 +3,10 @@
  * Handles HTTP requests with JWT authentication, token refresh, and custom headers
  */
 
-// const API_BASE_URL = 'https://api.theabbapayroll.com'
-const API_BASE_URL = 'http://localhost:8000'
+import errorHandler from './errorHandler.js'
+
+const API_BASE_URL = 'https://api.theabbapayroll.com'
+// const API_BASE_URL = 'http://localhost:8000'
 
 class HttpClient {
   constructor() {
@@ -85,7 +87,6 @@ class HttpClient {
 
       // Handle 401 Unauthorized - try to refresh token
       if (response.status === 401 && !options.skipRetry && this.refreshToken) {
-        console.log('Access token expired, attempting refresh...')
         const refreshed = await this.refreshAccessToken()
 
         if (refreshed) {
@@ -98,18 +99,23 @@ class HttpClient {
         }
       }
 
-      // Parse response
-      const data = await response.json().catch(() => ({}))
-
-      // Handle non-2xx responses
+      // Handle non-2xx responses first
       if (!response.ok) {
-        throw {
-          status: response.status,
-          message: data.detail || data.message || 'An error occurred',
-          data: data
-        }
+        // Let errorHandler parse the response
+        const errorObj = await errorHandler.parseHttpResponse(response)
+
+        // Log error for debugging (don't show toast here, let services handle it)
+        errorHandler.handle(errorObj, {
+          context: `HTTP ${options.method || 'GET'} ${endpoint}`,
+          operation: 'http_request',
+          showToast: false // Services will handle toast notifications
+        })
+
+        throw errorObj
       }
 
+      // Parse successful response
+      const data = await response.json().catch(() => ({}))
       return data
 
     } catch (error) {
@@ -119,11 +125,20 @@ class HttpClient {
       }
 
       // Network or other errors
-      throw {
+      const networkError = {
         status: 0,
         message: error.message || 'Network error',
         data: null
       }
+
+      // Log network error
+      errorHandler.handle(networkError, {
+        context: `HTTP ${options.method || 'GET'} ${endpoint}`,
+        operation: 'http_request',
+        showToast: false
+      })
+
+      throw networkError
     }
   }
 
@@ -145,7 +160,6 @@ class HttpClient {
 
       if (response.access) {
         this.setTokens(response.access, this.refreshToken)
-        console.log('Access token refreshed successfully')
         return true
       }
 

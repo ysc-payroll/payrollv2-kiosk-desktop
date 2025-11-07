@@ -14,9 +14,15 @@ export function useHolidayManagement() {
     approvalsPrefix: 'approvals_holiday'
   })
 
-  // Return base composable with alias for clarity
+  // Return base composable with aliases for clarity
   return {
     ...base,
-    holidayApplications: base.applications
+    holidayApplications: base.applications,
+    fetchHolidayApplications: base.fetchApplications,
+    createHoliday: base.createApplication,
+    updateHoliday: base.updateApplication,
+    deleteHoliday: base.deleteApplication,
+    cancelHoliday: base.cancelApplication,
+    getHolidayById: base.getApplicationById
   }
 }

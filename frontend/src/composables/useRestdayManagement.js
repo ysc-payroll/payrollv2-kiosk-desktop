@@ -14,9 +14,15 @@ export function useRestdayManagement() {
     approvalsPrefix: 'approvals_restday'
   })
 
-  // Return base composable with alias for clarity
+  // Return base composable with aliases for clarity
   return {
     ...base,
-    restdayApplications: base.applications
+    restdayApplications: base.applications,
+    fetchRestdayApplications: base.fetchApplications,
+    createRestday: base.createApplication,
+    updateRestday: base.updateApplication,
+    deleteRestday: base.deleteApplication,
+    cancelRestday: base.cancelApplication,
+    getRestdayById: base.getApplicationById
   }
 }
