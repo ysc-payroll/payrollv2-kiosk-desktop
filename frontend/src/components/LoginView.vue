@@ -170,8 +170,8 @@ const emit = defineEmits(['login-success'])
 let kioskBridge = null
 
 // Form state
-const email = ref('zip1@gmail.com')
-const password = ref('722436Aa!')
+const email = ref('')
+const password = ref('')
 const rememberMe = ref(false)
 const isLoading = ref(false)
 const errorMessage = ref('')
