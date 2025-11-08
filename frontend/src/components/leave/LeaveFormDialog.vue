@@ -57,16 +57,22 @@
               <span v-if="formErrors.employee" class="text-xs text-red-500 mt-1">{{ formErrors.employee }}</span>
             </div>
 
-            <!-- Step 2: Leave Type (only if employee is selected) -->
-            <div v-if="employeeSelected" class="form-group">
+            <!-- Step 2: Leave Type -->
+            <div class="form-group">
               <label for="leave_type" class="block text-sm font-medium text-slate-700 mb-1">
                 Type of Leave <span class="text-red-500">*</span>
               </label>
               <select
                 v-model="formData.leave_type"
                 @change="clearError('leave_type')"
-                class="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                :class="{ 'border-red-500': formErrors.leave_type }"
+                class="block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                :class="[
+                  { 'border-red-500': formErrors.leave_type },
+                  employeeSelected
+                    ? 'bg-white text-slate-900 cursor-pointer'
+                    : 'bg-slate-50 text-slate-500 cursor-not-allowed'
+                ]"
+                :disabled="!employeeSelected"
               >
                 <option value="">Select leave type</option>
                 <option v-for="type in leaveTypes" :key="type.id" :value="type.id">
@@ -76,8 +82,11 @@
               <span v-if="formErrors.leave_type" class="text-xs text-red-500 mt-1">{{ formErrors.leave_type }}</span>
             </div>
 
-            <!-- Step 3: Terms - Whole Day / Half Day (only if leave type is selected) -->
-            <div v-if="leaveTypeSelected" class="form-group">
+            <!-- Step 3: Terms - Whole Day / Half Day -->
+            <div
+              class="form-group"
+              :class="{ 'opacity-60 pointer-events-none select-none': !leaveTypeSelected }"
+            >
               <label class="block text-sm font-medium text-slate-700 mb-2">
                 Terms <span class="text-red-500">*</span>
               </label>
@@ -89,6 +98,7 @@
                     value="wholeday"
                     @change="clearError('terms')"
                     class="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                    :disabled="!leaveTypeSelected"
                   />
                   <span class="ml-2 text-sm text-slate-700">Whole Day</span>
                 </label>
@@ -99,6 +109,7 @@
                     value="halfday"
                     @change="clearError('terms')"
                     class="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500/20"
+                    :disabled="!leaveTypeSelected"
                   />
                   <span class="ml-2 text-sm text-slate-700">Halfday</span>
                 </label>
@@ -181,7 +192,10 @@
             </div>
 
             <!-- Step 6: Reason (only if employee and leave type are selected) -->
-            <div v-if="employeeSelected && leaveTypeSelected" class="form-group">
+            <div
+              class="form-group"
+              :class="{ 'opacity-60 pointer-events-none select-none': !(employeeSelected && leaveTypeSelected) }"
+            >
               <label for="reason" class="block text-sm font-medium text-slate-700 mb-1">
                 Reason <span class="text-red-500">*</span>
               </label>
@@ -190,8 +204,14 @@
                 @input="clearError('reason')"
                 rows="3"
                 placeholder="Enter reason here..."
-                class="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                :class="{ 'border-red-500': formErrors.reason }"
+                class="block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                :class="[
+                  employeeSelected && leaveTypeSelected
+                    ? 'bg-white text-slate-900'
+                    : 'bg-slate-50 text-slate-500 cursor-not-allowed',
+                  { 'border-red-500': formErrors.reason }
+                ]"
+                :disabled="!(employeeSelected && leaveTypeSelected)"
               ></textarea>
               <span v-if="formErrors.reason" class="text-xs text-red-500 mt-1">{{ formErrors.reason }}</span>
             </div>

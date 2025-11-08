@@ -275,15 +275,22 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
   const getApplicationById = async (id) => {
     try {
       const result = await serviceApi.getById(id)
-      if (result.success) {
-        return { success: true, data: result.data }
-      } else {
-        return errorHandler.handle(new Error(result.message), {
-          context: `Fetch ${resourceType} details`,
-          operation: 'get_by_id',
-          showToast: true
-        })
+
+      // Check if result is already wrapped in success/data format
+      if (result && typeof result === 'object' && 'success' in result) {
+        if (result.success) {
+          return { success: true, data: result.data }
+        } else {
+          return errorHandler.handle(new Error(result.message), {
+            context: `Fetch ${resourceType} details`,
+            operation: 'get_by_id',
+            showToast: true
+          })
+        }
       }
+
+      // If result is raw data (from base service), wrap it
+      return { success: true, data: result }
     } catch (error) {
       return errorHandler.handle(error, {
         context: `Fetch ${resourceType} details`,

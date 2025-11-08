@@ -79,6 +79,11 @@ export const AttachmentHeaderIcon = () => {
 export const ActionsColumn = (props) => {
   const { record, permissions, openDropdownId, toggleDropdown, handleAction } = props
 
+  // openDropdownId can be a ref or a plain value
+  const dropdownId = typeof openDropdownId === 'object' && openDropdownId !== null && 'value' in openDropdownId
+    ? openDropdownId.value
+    : openDropdownId
+
   return h('div', { class: 'relative inline-block' }, [
     h('button', {
       onClick: () => toggleDropdown(record.id),
@@ -100,7 +105,7 @@ export const ActionsColumn = (props) => {
         })
       ])
     ]),
-    openDropdownId.value === record.id ? h('div', {
+    dropdownId === record.id ? h('div', {
       class: 'absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 z-10'
     }, [
       h('div', { class: 'py-1' }, [
