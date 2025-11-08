@@ -185,7 +185,18 @@ class KioskWindow(QMainWindow):
         """Load the Vue.js frontend from local HTTP server or dev server."""
         logger.info("load_frontend() starting")
         try:
-            # Check if running from PyInstaller bundle
+            # Check for DEV_MODE environment variable
+            dev_mode = os.environ.get('DEV_MODE', 'false').lower() == 'true'
+
+            if dev_mode:
+                # Development mode: Use Vite dev server
+                dev_url = "http://localhost:5173"
+                logger.info(f"🔧 DEV_MODE enabled - Loading from Vite dev server: {dev_url}")
+                logger.info("Make sure Vite dev server is running: cd frontend && npm run dev")
+                self.browser.setUrl(QUrl(dev_url))
+                return
+
+            # Production mode: Check if running from PyInstaller bundle
             if getattr(sys, 'frozen', False):
                 # Running in PyInstaller bundle
                 base_path = Path(sys._MEIPASS)
@@ -212,9 +223,9 @@ class KioskWindow(QMainWindow):
                 self.browser.setUrl(QUrl(url))
                 logger.info("Frontend URL set in browser")
             else:
-                # Load from Vite dev server (default: http://localhost:5173)
+                # Fallback to Vite dev server
                 dev_url = "http://localhost:5173"
-                logger.warning(f"Frontend not found! Loading dev server from: {dev_url}")
+                logger.warning(f"Frontend dist not found! Falling back to dev server: {dev_url}")
                 self.browser.setUrl(QUrl(dev_url))
                 logger.info("Make sure Vite dev server is running: cd frontend && npm run dev")
         except Exception as e:

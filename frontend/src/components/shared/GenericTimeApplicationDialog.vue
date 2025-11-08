@@ -24,16 +24,15 @@
             <label class="block text-sm font-medium text-slate-700 mb-2">
               Employee <span class="text-red-500">*</span>
             </label>
-            <select
+            <SearchableSelect
               v-model="formData.employee"
-              class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
-              :class="{ 'border-red-300': formErrors.employee }"
-            >
-              <option value="">Select Employee</option>
-              <option v-for="emp in employees" :key="emp.id" :value="emp.id">
-                {{ emp.name }}
-              </option>
-            </select>
+              :options="employeeOptions"
+              label-key="name"
+              value-key="id"
+              placeholder="Select Employee"
+              :error="!!formErrors.employee"
+              :initial-limit="50"
+            />
             <p v-if="formErrors.employee" class="mt-1 text-sm text-red-600">{{ formErrors.employee }}</p>
           </div>
 
@@ -275,6 +274,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import SearchableSelect from './SearchableSelect.vue'
 
 const props = defineProps({
   isOpen: Boolean,
@@ -296,6 +296,14 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'submit'])
+
+// Format employees for SearchableSelect
+const employeeOptions = computed(() => {
+  return props.employees.map(emp => ({
+    id: emp.id,
+    name: emp.name || `${emp.first_name} ${emp.last_name}`.trim()
+  }))
+})
 
 const formData = ref({
   employee: '',
