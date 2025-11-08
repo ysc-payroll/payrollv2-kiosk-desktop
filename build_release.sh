@@ -108,6 +108,23 @@ if [ $? -eq 0 ]; then
         APP_SIZE=$(du -sh "$PROJECT_ROOT/dist/Timekeeper Payroll.app" | cut -f1)
         echo "   App bundle size: $APP_SIZE"
     fi
+
+    # CRITICAL FIX: Move QtWebEngineProcess Helpers and Resources to correct location
+    # PyInstaller places them in Versions/Resources/ but they should be in Versions/A/
+    echo "Fixing QtWebEngine framework structure..."
+    FRAMEWORK_PATH="$PROJECT_ROOT/dist/Timekeeper Payroll.app/Contents/Frameworks/PyQt6/Qt6/lib/QtWebEngineCore.framework"
+
+    # Move Helpers directory
+    if [ -d "$FRAMEWORK_PATH/Versions/Resources/Helpers" ] && [ ! -d "$FRAMEWORK_PATH/Versions/A/Helpers" ]; then
+        mv "$FRAMEWORK_PATH/Versions/Resources/Helpers" "$FRAMEWORK_PATH/Versions/A/Helpers"
+        echo -e "${GREEN}✅ Moved Helpers directory to Versions/A/${NC}"
+    fi
+
+    # Copy Resources content (keep original for other potential symlinks)
+    if [ -d "$FRAMEWORK_PATH/Versions/Resources/Resources" ]; then
+        cp -R "$FRAMEWORK_PATH/Versions/Resources/Resources/"* "$FRAMEWORK_PATH/Versions/A/Resources/" 2>/dev/null
+        echo -e "${GREEN}✅ Copied Resources to Versions/A/${NC}"
+    fi
 else
     echo -e "${RED}❌ PyInstaller build failed${NC}"
     exit 1

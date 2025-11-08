@@ -8,6 +8,29 @@ import logging
 import threading
 from pathlib import Path
 from datetime import datetime
+
+# CRITICAL: Set QtWebEngineProcess path BEFORE importing PyQt6
+# This must happen before any PyQt6 imports
+if getattr(sys, 'frozen', False):
+    # Running as PyInstaller bundle
+    base_path = Path(sys._MEIPASS)
+
+    # Try primary path (with symlink)
+    qtwebengine_process = base_path / "PyQt6" / "Qt6" / "lib" / "QtWebEngineCore.framework" / "Helpers" / "QtWebEngineProcess.app" / "Contents" / "MacOS" / "QtWebEngineProcess"
+
+    if not qtwebengine_process.exists():
+        # Try alternative path (Versions/A)
+        qtwebengine_process = base_path / "PyQt6" / "Qt6" / "lib" / "QtWebEngineCore.framework" / "Versions" / "A" / "Helpers" / "QtWebEngineProcess.app" / "Contents" / "MacOS" / "QtWebEngineProcess"
+
+    if qtwebengine_process.exists():
+        os.environ['QTWEBENGINEPROCESS_PATH'] = str(qtwebengine_process)
+        # Write to stderr BEFORE logging is set up
+        sys.stderr.write(f"✅ [QTWEBENGINE] Set QTWEBENGINEPROCESS_PATH={qtwebengine_process}\n")
+        sys.stderr.flush()
+    else:
+        sys.stderr.write(f"❌ [QTWEBENGINE] QtWebEngineProcess NOT FOUND at {qtwebengine_process}\n")
+        sys.stderr.flush()
+
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -112,28 +135,41 @@ class KioskWindow(QMainWindow):
         logger.info("Window title set")
 
         # Create web view
-        logger.info("Creating QWebEngineView")
-        self.browser = QWebEngineView()
+        logger.info("=" * 60)
+        logger.info("STEP 1: About to import QWebEngineView")
+        from PyQt6.QtWebEngineWidgets import QWebEngineView as WebView
+        logger.info("STEP 2: QWebEngineView imported successfully")
+
+        logger.info("STEP 3: About to instantiate QWebEngineView()")
+        self.browser = WebView()
+        logger.info("STEP 4: QWebEngineView instantiated successfully")
+
+        logger.info("STEP 5: About to set as central widget")
         self.setCentralWidget(self.browser)
-        logger.info("Web view created and set as central widget")
+        logger.info("STEP 6: Web view set as central widget successfully")
+        logger.info("=" * 60)
 
         # Enable camera/microphone permissions
+        logger.info("STEP 7: About to import QWebEnginePage and QWebEngineSettings")
         from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
-        logger.info("Configuring WebEngine settings")
+        logger.info("STEP 8: QWebEngineCore imports successful")
 
+        logger.info("STEP 9: About to get page settings")
         settings = self.browser.page().settings()
+        logger.info("STEP 10: Got page settings")
+
+        logger.info("STEP 11: Configuring settings attributes")
         settings.setAttribute(QWebEngineSettings.WebAttribute.ScreenCaptureEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
-
-        # Enable developer tools (F12 to open)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
-
-        # DISABLE CACHE to force reload of JS files during development
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+        logger.info("STEP 12: Settings attributes configured")
+
+        logger.info("STEP 13: About to configure cache settings")
         from PyQt6.QtWebEngineCore import QWebEngineProfile
         profile = self.browser.page().profile()
         profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.NoCache)
-        logger.info("Cache disabled - JavaScript will reload on every restart")
+        logger.info("STEP 14: Cache disabled - JavaScript will reload on every restart")
 
         # Handle feature permission requests (camera/microphone)
         self.browser.page().featurePermissionRequested.connect(self.on_feature_permission_requested)

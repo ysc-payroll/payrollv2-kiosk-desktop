@@ -833,10 +833,21 @@ class KioskBridge(QObject):
         try:
             # Import face_recognition library
             import face_recognition
-        except ImportError:
+        except ImportError as e:
+            import sys
+            sys.stderr.write(f"❌ Failed to import face_recognition: {e}\n")
+            sys.stderr.flush()
             return json.dumps({
                 "success": False,
-                "message": "Face recognition library not installed. Run: pip install face_recognition"
+                "message": f"Face recognition library not installed: {str(e)}"
+            })
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"❌ Unexpected error importing face_recognition: {e}\n")
+            sys.stderr.flush()
+            return json.dumps({
+                "success": False,
+                "message": f"Error loading face recognition: {str(e)}"
             })
 
         try:
@@ -929,10 +940,21 @@ class KioskBridge(QObject):
         try:
             # Import face_recognition library
             import face_recognition
-        except ImportError:
+        except ImportError as e:
+            import sys
+            sys.stderr.write(f"❌ Failed to import face_recognition in recognizeFace: {e}\n")
+            sys.stderr.flush()
             return json.dumps({
                 "success": False,
-                "message": "Face recognition library not installed"
+                "message": f"Face recognition library not installed: {str(e)}"
+            })
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"❌ Unexpected error importing face_recognition in recognizeFace: {e}\n")
+            sys.stderr.flush()
+            return json.dumps({
+                "success": False,
+                "message": f"Error loading face recognition: {str(e)}"
             })
 
         try:

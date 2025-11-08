@@ -5,45 +5,26 @@ from pathlib import Path
 
 block_cipher = None
 
-# Find PyQt6 and QtWebEngine paths
-import PyQt6
-pyqt6_path = Path(PyQt6.__file__).parent
-qt6_path = pyqt6_path / 'Qt6'
+# PyInstaller's hook-PyQt6.QtWebEngineCore.py will automatically collect
+# QtWebEngineProcess and resources when PyQt6.QtWebEngineCore is imported.
+# We just need to ensure it's in hiddenimports.
 
-# Build paths for QtWebEngine resources
-qt_webengine_resources = []
-qt_webengine_binaries = []
-
-# Add QtWebEngine resources and translations
-resources_path = qt6_path / 'resources'
-translations_path = qt6_path / 'translations'
-libexec_path = qt6_path / 'libexec'
-
-if resources_path.exists():
-    qt_webengine_resources.append((str(resources_path), 'PyQt6/Qt6/resources'))
-if translations_path.exists():
-    qt_webengine_resources.append((str(translations_path), 'PyQt6/Qt6/translations'))
-
-# Add QtWebEngineProcess helper binary
-if sys.platform == 'darwin':
-    # macOS - QtWebEngineProcess is in libexec
-    helper_path = libexec_path / 'QtWebEngineProcess.app'
-    if helper_path.exists():
-        qt_webengine_binaries.append((str(helper_path), 'PyQt6/Qt6/libexec'))
-elif sys.platform == 'win32':
-    # Windows
-    helper_path = qt6_path / 'QtWebEngineProcess.exe'
-    if helper_path.exists():
-        qt_webengine_binaries.append((str(helper_path), 'PyQt6/Qt6'))
+# Collect face_recognition model files
+try:
+    import face_recognition_models
+    face_models_path = Path(face_recognition_models.__file__).parent / 'models'
+    face_models_datas = [(str(face_models_path), 'face_recognition_models/models')]
+except ImportError:
+    face_models_datas = []
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=qt_webengine_binaries,
+    binaries=[],
     datas=[
         ('../frontend/dist', 'frontend/dist'),  # Include built frontend
         ('database', 'database'),  # Include database folder
-    ] + qt_webengine_resources,
+    ] + face_models_datas,  # Include face recognition model files
     hiddenimports=[
         'PyQt6.QtCore',
         'PyQt6.QtGui',
@@ -51,10 +32,18 @@ a = Analysis(
         'PyQt6.QtWebEngineWidgets',
         'PyQt6.QtWebChannel',
         'PyQt6.QtWebEngineCore',
+        # Face recognition libraries (dynamically imported in bridge.py)
+        'face_recognition',
+        'face_recognition_models',
+        'dlib',
+        'cv2',
+        'numpy',
+        'PIL',
+        'PIL.Image',
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['pyi_rth_qtwebengine.py'],  # Custom hook to set QTWEBENGINEPROCESS_PATH
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
