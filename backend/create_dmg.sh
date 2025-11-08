@@ -4,11 +4,13 @@
 # This script creates a user-friendly DMG installer with drag-to-Applications
 
 APP_NAME="Timekeeper Payroll"
-APP_PATH="dist/${APP_NAME}.app"
+# Use project root dist directory
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_PATH="${PROJECT_ROOT}/dist/${APP_NAME}.app"
 DMG_NAME="TimekeeperPayroll-v2.0.0"
-DMG_PATH="dist/${DMG_NAME}.dmg"
+DMG_PATH="${PROJECT_ROOT}/dist/${DMG_NAME}.dmg"
 VOLUME_NAME="Timekeeper Payroll Installer"
-TEMP_DMG="dist/temp.dmg"
+TEMP_DMG="${PROJECT_ROOT}/dist/temp.dmg"
 
 echo "🚀 Creating DMG installer for ${APP_NAME}..."
 

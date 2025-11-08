@@ -92,6 +92,8 @@ coll = COLLECT(
     upx=True,
     upx_exclude=[],
     name='Timekeeper Payroll',
+    # Output to project root dist directory
+    # DISTPATH is set via pyinstaller --distpath ../dist
 )
 
 app = BUNDLE(
