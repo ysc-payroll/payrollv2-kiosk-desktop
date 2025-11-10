@@ -8,16 +8,38 @@
           {{ totalRecords }} employee{{ totalRecords !== 1 ? 's' : '' }} total
         </p>
       </div>
-      <button
-        @click="showRefreshConfirmation"
-        :disabled="isRefreshing || isLoading"
-        class="inline-flex items-center gap-2 rounded-xl bg-green-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <svg class="h-5 w-5" :class="{ 'animate-spin': isRefreshing }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-        {{ isRefreshing ? 'Refreshing...' : 'Refresh from Live' }}
-      </button>
+      <div class="flex gap-2">
+        <button
+          @click="showPopulateDummyDataConfirmation"
+          :disabled="isPopulatingDummy || isLoading"
+          class="inline-flex items-center gap-2 rounded-xl bg-purple-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-purple-600 focus:outline-none focus:ring-4 focus:ring-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <svg class="h-5 w-5" :class="{ 'animate-spin': isPopulatingDummy }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+          </svg>
+          {{ isPopulatingDummy ? 'Populating...' : 'Populate Dummy Faces' }}
+        </button>
+        <button
+          @click="showClearFaceDataConfirmation"
+          :disabled="isClearingFaces || isLoading || !hasFaceRegistrations"
+          class="inline-flex items-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-red-600 focus:outline-none focus:ring-4 focus:ring-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          {{ isClearingFaces ? 'Clearing...' : 'Clear All Faces' }}
+        </button>
+        <button
+          @click="showRefreshConfirmation"
+          :disabled="isRefreshing || isLoading"
+          class="inline-flex items-center gap-2 rounded-xl bg-green-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-green-600 focus:outline-none focus:ring-4 focus:ring-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <svg class="h-5 w-5" :class="{ 'animate-spin': isRefreshing }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {{ isRefreshing ? 'Refreshing...' : 'Refresh from Live' }}
+        </button>
+      </div>
     </div>
 
     <!-- Search Section -->
@@ -273,6 +295,139 @@
       </div>
     </div>
 
+    <!-- Populate Dummy Face Data Confirmation Dialog -->
+    <div
+      v-if="showPopulateDummyDialog"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      @click.self="closePopulateDummyDialog"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <!-- Header -->
+        <div class="p-6 border-b border-slate-200">
+          <div class="flex items-center gap-3">
+            <div class="flex-shrink-0 h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
+              <svg class="h-6 w-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-xl font-bold text-slate-900">Populate Dummy Face Data</h2>
+              <p class="text-sm text-slate-600">Performance Testing</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 space-y-4">
+          <div class="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div class="flex items-start gap-3">
+              <svg class="h-5 w-5 text-amber-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div class="flex-1">
+                <p class="text-sm font-medium text-amber-900">Warning</p>
+                <p class="text-xs text-amber-700 mt-1">
+                  This will generate unique random face data for ALL {{ totalRecords }} employees.
+                  <strong>Any existing face registrations will be overwritten.</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <p class="text-sm text-blue-900 font-medium mb-2">This feature is for:</p>
+            <ul class="text-xs text-blue-800 space-y-1">
+              <li>• Performance testing with large datasets</li>
+              <li>• Testing face recognition speed at scale</li>
+              <li>• Each employee will get a unique random face encoding</li>
+            </ul>
+          </div>
+
+          <p class="text-sm text-slate-700">
+            After populating, you can register your real face for one employee to test recognition performance.
+          </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-6 border-t border-slate-200 flex justify-end gap-3">
+          <button
+            @click="closePopulateDummyDialog"
+            class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition"
+          >
+            Cancel
+          </button>
+          <button
+            @click="handlePopulateDummyData"
+            class="px-4 py-2 text-sm font-medium text-white bg-purple-500 rounded-lg hover:bg-purple-600 transition"
+          >
+            Populate Dummy Data
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Clear All Face Data Confirmation Dialog -->
+    <div
+      v-if="showClearFaceDialog"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      @click.self="closeClearFaceDialog"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <!-- Header -->
+        <div class="p-6 border-b border-slate-200">
+          <div class="flex items-center gap-3">
+            <div class="flex-shrink-0 h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+              <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-xl font-bold text-slate-900">Clear All Face Data</h2>
+              <p class="text-sm text-slate-600">Permanent Action</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 space-y-4">
+          <div class="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div class="flex items-start gap-3">
+              <svg class="h-5 w-5 text-red-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div class="flex-1">
+                <p class="text-sm font-medium text-red-900">Permanent Deletion</p>
+                <p class="text-xs text-red-700 mt-1">
+                  This will permanently remove face registrations for ALL employees.
+                  <strong>This action cannot be undone.</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <p class="text-sm text-slate-700">
+            All employees will need to re-register their faces if you want to use face recognition again.
+          </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-6 border-t border-slate-200 flex justify-end gap-3">
+          <button
+            @click="closeClearFaceDialog"
+            class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition"
+          >
+            Cancel
+          </button>
+          <button
+            @click="handleClearAllFaceData"
+            class="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition"
+          >
+            Clear All Face Data
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Face Registration Dialog -->
     <FaceRegistrationDialog
       :is-open="showFaceDialog"
@@ -297,12 +452,16 @@ const searchQuery = ref('')
 const currentPage = ref(1)
 const isLoading = ref(false)
 const isRefreshing = ref(false)
+const isPopulatingDummy = ref(false)
+const isClearingFaces = ref(false)
 const limit = 20
 
 // Dialog states
 const showConfirmDialog = ref(false)
 const showResultDialog = ref(false)
 const showFaceDialog = ref(false)
+const showPopulateDummyDialog = ref(false)
+const showClearFaceDialog = ref(false)
 const selectedEmployee = ref(null)
 const syncResult = ref({
   added_count: 0,
@@ -317,6 +476,9 @@ const totalRecords = computed(() => filteredEmployees.value.length)
 const totalPages = computed(() => Math.ceil(filteredEmployees.value.length / limit) || 1)
 const startRecord = computed(() => (currentPage.value - 1) * limit + 1)
 const endRecord = computed(() => Math.min(currentPage.value * limit, totalRecords.value))
+const hasFaceRegistrations = computed(() =>
+  allEmployees.value.some(emp => emp.has_face_registration)
+)
 
 const paginatedEmployees = computed(() => {
   const start = (currentPage.value - 1) * limit
@@ -536,6 +698,86 @@ const handleFaceRegistrationSuccess = async () => {
       allEmployees.value[empIndex].face_registered_at = new Date().toISOString()
       applyFilters()
     }
+  }
+}
+
+// Populate Dummy Face Data handlers
+const showPopulateDummyDataConfirmation = () => {
+  showPopulateDummyDialog.value = true
+}
+
+const closePopulateDummyDialog = () => {
+  showPopulateDummyDialog.value = false
+}
+
+const handlePopulateDummyData = async () => {
+  isPopulatingDummy.value = true
+  closePopulateDummyDialog()
+
+  try {
+    const resultJson = await window.kioskBridge.populateDummyFaceData()
+    const result = JSON.parse(resultJson)
+
+    if (result.success) {
+      console.log(`✅ Populated dummy face data: ${result.count} employees in ${result.duration}s`)
+
+      // Show success toast
+      window.showToast?.(
+        `Successfully populated dummy face data for ${result.count} employees in ${result.duration}s`,
+        'success'
+      )
+
+      // Reload employees to show updated face registration status
+      await fetchEmployees()
+    } else {
+      console.error('Failed to populate dummy face data:', result.message)
+      window.showToast?.(result.message || 'Failed to populate dummy face data', 'error')
+    }
+  } catch (error) {
+    console.error('Error populating dummy face data:', error)
+    window.showToast?.('Error populating dummy face data', 'error')
+  } finally {
+    isPopulatingDummy.value = false
+  }
+}
+
+// Clear All Face Data handlers
+const showClearFaceDataConfirmation = () => {
+  showClearFaceDialog.value = true
+}
+
+const closeClearFaceDialog = () => {
+  showClearFaceDialog.value = false
+}
+
+const handleClearAllFaceData = async () => {
+  isClearingFaces.value = true
+  closeClearFaceDialog()
+
+  try {
+    const resultJson = await window.kioskBridge.clearAllFaceData()
+    const result = JSON.parse(resultJson)
+
+    if (result.success) {
+      console.log(`✅ Cleared face data: ${result.count} employees in ${result.duration}s`)
+
+      // Show success toast
+      window.showToast?.(
+        `Successfully cleared face data for ${result.count} employees`,
+        'success'
+      )
+
+      // Reload employees to show updated face registration status
+      await fetchEmployees()
+    } else {
+      console.error('Failed to clear face data:', result.message)
+      window.showToast?.(result.message || 'Failed to clear face data', 'error')
+    }
+  } catch (error) {
+    console.error('Error clearing face data:', error)
+    window.showToast?.('Error clearing face data', 'error')
+  } finally {
+    isClearingFaces.value = false
   }
 }
 

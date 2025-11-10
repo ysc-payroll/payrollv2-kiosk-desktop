@@ -97,6 +97,70 @@
           <p class="text-sm font-medium">{{ statusMessage }}</p>
         </div>
 
+        <!-- Quality Results (shown after capture) -->
+        <div v-if="capturedPhoto && qualityScore !== null" class="mb-4 space-y-3">
+          <!-- Quality Score -->
+          <div class="p-4 rounded-lg border" :class="{
+            'bg-green-50 border-green-200': qualityScore >= 70,
+            'bg-amber-50 border-amber-200': qualityScore >= 50 && qualityScore < 70,
+            'bg-red-50 border-red-200': qualityScore < 50
+          }">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold" :class="{
+                'text-green-900': qualityScore >= 70,
+                'text-amber-900': qualityScore >= 50 && qualityScore < 70,
+                'text-red-900': qualityScore < 50
+              }">Quality Score</span>
+              <span class="text-2xl font-bold" :class="{
+                'text-green-600': qualityScore >= 70,
+                'text-amber-600': qualityScore >= 50 && qualityScore < 70,
+                'text-red-600': qualityScore < 50
+              }">{{ qualityScore }}/100</span>
+            </div>
+
+            <!-- Progress bar -->
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full transition-all" :class="{
+                'bg-green-500': qualityScore >= 70,
+                'bg-amber-500': qualityScore >= 50 && qualityScore < 70,
+                'bg-red-500': qualityScore < 50
+              }" :style="{ width: qualityScore + '%' }"></div>
+            </div>
+          </div>
+
+          <!-- Issues List -->
+          <div v-if="qualityIssues.length > 0" class="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+            <h4 class="text-sm font-semibold text-slate-900 mb-2">
+              {{ qualityScore >= 70 ? 'Suggestions for Improvement:' : 'Issues to Fix:' }}
+            </h4>
+            <ul class="space-y-2">
+              <li v-for="(issue, index) in qualityIssues" :key="index" class="flex items-start gap-2 text-sm">
+                <!-- Icon based on severity -->
+                <svg v-if="issue.severity === 'error'" class="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <svg v-else class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span :class="{
+                  'text-red-700': issue.severity === 'error',
+                  'text-amber-700': issue.severity === 'warning'
+                }">{{ issue.message }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Success message if no issues -->
+          <div v-else-if="qualityScore >= 80" class="p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div class="flex items-center gap-2 text-green-800">
+              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              <span class="text-sm font-medium">Perfect! Photo quality is excellent.</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Actions -->
         <div class="flex items-center justify-end gap-3">
           <button
@@ -111,13 +175,14 @@
           <button
             v-if="capturedPhoto"
             @click="retakePhoto"
-            class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
-            :disabled="isProcessing"
+            class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            :disabled="isProcessing || isCheckingQuality"
           >
             <svg class="inline h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             Retake Photo
+            <span v-if="qualityScore < 70 && qualityScore !== null" class="ml-1 text-xs">(Recommended)</span>
           </button>
 
           <button
@@ -136,14 +201,23 @@
           <button
             v-if="capturedPhoto"
             @click="registerFace"
-            :disabled="isProcessing"
+            :disabled="isProcessing || isCheckingQuality || (qualityScore !== null && qualityScore < 50)"
+            :title="qualityScore !== null && qualityScore < 50 ? 'Quality too low - please retake photo' : ''"
             class="px-4 py-2 text-sm font-medium text-white bg-green-500 hover:bg-green-600 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span v-if="!isProcessing" class="flex items-center">
+            <span v-if="!isProcessing && !isCheckingQuality" class="flex items-center">
               <svg class="h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               {{ hasExisting ? 'Update' : 'Register' }} Face
+              <span v-if="qualityScore >= 70" class="ml-1">✓</span>
+            </span>
+            <span v-else-if="isCheckingQuality" class="flex items-center">
+              <svg class="animate-spin h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Checking quality...
             </span>
             <span v-else class="flex items-center">
               <svg class="animate-spin h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -191,6 +265,10 @@ const capturedPhoto = ref(null)
 const statusMessage = ref('')
 const statusClass = ref('')
 const isProcessing = ref(false)
+const qualityScore = ref(null)
+const qualityIssues = ref([])
+const qualityMetrics = ref(null)
+const isCheckingQuality = ref(false)
 let mediaStream = null
 
 // Initialize camera
@@ -236,7 +314,7 @@ const stopCamera = () => {
 }
 
 // Capture photo
-const capturePhoto = () => {
+const capturePhoto = async () => {
   if (!videoElement.value || !isCameraReady.value) return
 
   const canvas = document.createElement('canvas')
@@ -251,6 +329,51 @@ const capturePhoto = () => {
 
   // Stop camera to save resources
   stopCamera()
+
+  // Check quality immediately after capture
+  await checkPhotoQuality()
+}
+
+// Check photo quality
+const checkPhotoQuality = async () => {
+  if (!capturedPhoto.value) return
+
+  isCheckingQuality.value = true
+  statusMessage.value = 'Analyzing photo quality...'
+  statusClass.value = 'bg-blue-50 border border-blue-200 text-blue-800'
+
+  try {
+    const resultJson = await window.kioskBridge.checkFaceQuality(capturedPhoto.value)
+    const result = JSON.parse(resultJson)
+
+    qualityScore.value = result.quality_score
+    qualityIssues.value = result.issues || []
+    qualityMetrics.value = result.metrics || null
+
+    // Update status based on quality
+    if (result.success && result.quality_score >= 80) {
+      statusMessage.value = `Excellent quality! (${result.quality_score}/100)`
+      statusClass.value = 'bg-green-50 border border-green-200 text-green-800'
+    } else if (result.quality_score >= 70) {
+      statusMessage.value = `Good quality (${result.quality_score}/100). You can register or retake for better quality.`
+      statusClass.value = 'bg-green-50 border border-green-200 text-green-800'
+    } else if (result.quality_score >= 50) {
+      statusMessage.value = `Fair quality (${result.quality_score}/100). Please address the issues below.`
+      statusClass.value = 'bg-amber-50 border border-amber-200 text-amber-800'
+    } else {
+      statusMessage.value = `Poor quality (${result.quality_score}/100). Please retake with improvements.`
+      statusClass.value = 'bg-red-50 border border-red-200 text-red-800'
+    }
+  } catch (error) {
+    console.error('Quality check error:', error)
+    statusMessage.value = 'Failed to check photo quality. You can still try to register.'
+    statusClass.value = 'bg-red-50 border border-red-200 text-red-800'
+    // Allow registration even if quality check fails
+    qualityScore.value = 70
+    qualityIssues.value = []
+  } finally {
+    isCheckingQuality.value = false
+  }
 }
 
 // Retake photo
@@ -258,6 +381,11 @@ const retakePhoto = () => {
   capturedPhoto.value = null
   isCapturing.value = false
   statusMessage.value = ''
+
+  // Reset quality state
+  qualityScore.value = null
+  qualityIssues.value = []
+  qualityMetrics.value = null
 
   // Restart camera
   setTimeout(() => {

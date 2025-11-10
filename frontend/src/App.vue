@@ -127,10 +127,10 @@ const startFaceScanning = () => {
     isValid: false
   }
 
-  // Scan every 2 seconds
+  // Scan every 3.5 seconds (optimized for better performance with many employees)
   faceRecognitionInterval.value = setInterval(async () => {
     await performFaceRecognition()
-  }, 2000)
+  }, 3500)
 }
 
 const stopFaceScanning = () => {
@@ -398,7 +398,22 @@ const handleTimeEntry = async (action) => {
         showToast(result.message, 'success')
         // Reset for next employee
         employeeId.value = ''
-        focusInput()
+
+        // Reset employee validation state
+        employeeValidation.value = {
+          status: 'default',
+          employeeName: '',
+          isValid: false
+        }
+
+        // Restart face scanning if in face recognition mode
+        // This allows the next employee to be recognized automatically
+        if (useFaceRecognition.value) {
+          startFaceScanning()
+        } else {
+          focusInput()
+        }
+
         // Reload recent logs
         loadRecentLogs()
         // Update unsynced count (new timesheet entry added)
@@ -416,7 +431,20 @@ const handleTimeEntry = async (action) => {
       })
       showToast(`Clocked ${action} (Browser Mode)`, 'success')
       employeeId.value = ''
-      focusInput()
+
+      // Reset employee validation state
+      employeeValidation.value = {
+        status: 'default',
+        employeeName: '',
+        isValid: false
+      }
+
+      // Restart face scanning if in face recognition mode
+      if (useFaceRecognition.value) {
+        startFaceScanning()
+      } else {
+        focusInput()
+      }
     }
   } catch (error) {
     console.error('Time entry error:', error)

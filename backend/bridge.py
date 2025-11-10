@@ -18,6 +18,10 @@ class KioskBridge(QObject):
         super().__init__()
         self.db = Database()
         self.parent = parent  # Store parent widget for file dialogs
+        # Cache for face encodings to avoid repeated DB queries
+        self._face_encodings_cache = None
+        self._cache_timestamp = None
+        self._cache_ttl_seconds = 300  # Cache expires after 5 minutes
 
     @pyqtSlot(str, str, str, result=str)
     def logTimeEntry(self, employee_id, action, photo_base64):
@@ -90,6 +94,33 @@ class KioskBridge(QObject):
 
         # Return relative path
         return str(photo_path)
+
+    def _get_cached_face_encodings(self):
+        """
+        Get face encodings from cache or database.
+        Refreshes cache every 5 minutes to balance performance and data freshness.
+
+        Returns:
+            list: Tuples of (id, name, face_encoding_json, employee_number)
+        """
+        from datetime import datetime, timedelta
+
+        now = datetime.now()
+
+        # Check if cache is empty or expired
+        if (self._face_encodings_cache is None or
+            self._cache_timestamp is None or
+            (now - self._cache_timestamp).total_seconds() > self._cache_ttl_seconds):
+
+            # Refresh cache from database
+            self._face_encodings_cache = self.db.get_all_face_encodings()
+            self._cache_timestamp = now
+
+            import sys
+            sys.stderr.write(f"🔄 Face encodings cache refreshed ({len(self._face_encodings_cache)} employees)\n")
+            sys.stderr.flush()
+
+        return self._face_encodings_cache
 
     @pyqtSlot(result=str)
     def testConnection(self):
@@ -815,6 +846,214 @@ class KioskBridge(QObject):
                 "error": str(e)
             })
 
+    @pyqtSlot(str, result=str)
+    def checkFaceQuality(self, photo_base64):
+        """
+        Check quality of a face photo before registration.
+        Validates blur, brightness, face size, centering, and angle.
+
+        Args:
+            photo_base64 (str): Base64 encoded photo (data:image/png;base64,...)
+
+        Returns:
+            str: JSON string with quality score and issues
+        """
+        import json
+        import numpy as np
+        import cv2
+
+        try:
+            import face_recognition
+        except ImportError as e:
+            return json.dumps({
+                "success": False,
+                "quality_score": 0,
+                "message": f"Face recognition library not installed: {str(e)}",
+                "issues": []
+            })
+
+        try:
+            # Remove data URL prefix
+            if "base64," in photo_base64:
+                photo_base64 = photo_base64.split("base64,")[1]
+
+            # Decode base64
+            photo_bytes = base64.b64decode(photo_base64)
+            nparr = np.frombuffer(photo_bytes, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+            if image is None:
+                return json.dumps({
+                    "success": False,
+                    "quality_score": 0,
+                    "message": "Failed to decode image",
+                    "issues": [{"type": "decode", "severity": "error", "message": "Failed to decode image"}]
+                })
+
+            # Convert BGR to RGB for face_recognition
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            height, width = image.shape[:2]
+
+            issues = []
+            quality_score = 0
+
+            # 1. Face Detection (mandatory)
+            face_locations = face_recognition.face_locations(rgb_image)
+
+            if len(face_locations) == 0:
+                return json.dumps({
+                    "success": False,
+                    "quality_score": 0,
+                    "message": "No face detected in photo",
+                    "issues": [{"type": "no_face", "severity": "error", "message": "No face detected. Ensure your face is visible and well-lit."}]
+                })
+
+            if len(face_locations) > 1:
+                return json.dumps({
+                    "success": False,
+                    "quality_score": 0,
+                    "message": "Multiple faces detected",
+                    "issues": [{"type": "multiple_faces", "severity": "error", "message": "Multiple faces detected. Ensure only your face is visible."}]
+                })
+
+            # Get face bounding box
+            top, right, bottom, left = face_locations[0]
+            face_width = right - left
+            face_height = bottom - top
+            face_area = face_width * face_height
+            frame_area = width * height
+            face_size_ratio = face_area / frame_area
+
+            # 2. Blur Detection (30 points)
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+            if laplacian_var > 150:
+                quality_score += 30
+            elif laplacian_var > 100:
+                quality_score += 20
+                issues.append({"type": "blur", "severity": "warning", "message": "Image is slightly blurry. Hold camera steady."})
+            else:
+                issues.append({"type": "blur", "severity": "error", "message": "Image is too blurry. Ensure camera lens is clean and hold steady."})
+
+            # 3. Brightness Check (20 points)
+            brightness = np.mean(gray)
+
+            if 80 <= brightness <= 180:
+                quality_score += 20
+            elif 50 <= brightness <= 200:
+                quality_score += 10
+                if brightness < 80:
+                    issues.append({"type": "brightness", "severity": "warning", "message": "Lighting is dim. Move to a brighter area."})
+                else:
+                    issues.append({"type": "brightness", "severity": "warning", "message": "Lighting is too bright. Avoid direct light on face."})
+            else:
+                if brightness < 50:
+                    issues.append({"type": "brightness", "severity": "error", "message": "Too dark. Turn on lights or move to brighter area."})
+                else:
+                    issues.append({"type": "brightness", "severity": "error", "message": "Too bright. Reduce direct lighting."})
+
+            # 4. Face Size Check (20 points)
+            if 0.20 <= face_size_ratio <= 0.35:
+                quality_score += 20
+            elif 0.15 <= face_size_ratio <= 0.40:
+                quality_score += 10
+                if face_size_ratio < 0.20:
+                    issues.append({"type": "distance", "severity": "warning", "message": "Face is small. Move 6 inches closer to camera."})
+                else:
+                    issues.append({"type": "distance", "severity": "warning", "message": "Face is large. Move back slightly."})
+            else:
+                if face_size_ratio < 0.15:
+                    issues.append({"type": "distance", "severity": "error", "message": "Too far from camera. Move much closer."})
+                else:
+                    issues.append({"type": "distance", "severity": "error", "message": "Too close to camera. Move back."})
+
+            # 5. Face Centering Check (15 points)
+            face_center_x = (left + right) / 2
+            face_center_y = (top + bottom) / 2
+            frame_center_x = width / 2
+            frame_center_y = height / 2
+            offset_x = abs(face_center_x - frame_center_x) / width
+            offset_y = abs(face_center_y - frame_center_y) / height
+            max_offset = max(offset_x, offset_y)
+
+            if max_offset < 0.15:
+                quality_score += 15
+            elif max_offset < 0.25:
+                quality_score += 8
+                if offset_x > offset_y:
+                    direction = "left" if face_center_x < frame_center_x else "right"
+                    issues.append({"type": "centering", "severity": "warning", "message": f"Face slightly off-center. Move {direction}."})
+                else:
+                    direction = "down" if face_center_y < frame_center_y else "up"
+                    issues.append({"type": "centering", "severity": "warning", "message": f"Face slightly off-center. Move {direction}."})
+            else:
+                issues.append({"type": "centering", "severity": "error", "message": "Face not centered. Position yourself in the middle of frame."})
+
+            # 6. Face Angle Check (15 points) using landmarks
+            try:
+                face_landmarks_list = face_recognition.face_landmarks(rgb_image)
+                if face_landmarks_list:
+                    landmarks = face_landmarks_list[0]
+
+                    # Calculate nose-to-eye distances (simple frontal face check)
+                    left_eye = np.array(landmarks['left_eye'])
+                    right_eye = np.array(landmarks['right_eye'])
+                    nose_bridge = np.array(landmarks['nose_bridge'])
+
+                    left_eye_center = np.mean(left_eye, axis=0)
+                    right_eye_center = np.mean(right_eye, axis=0)
+                    nose_tip = nose_bridge[-1]
+
+                    # Calculate eye distance and nose-to-eye distances
+                    eye_distance = np.linalg.norm(right_eye_center - left_eye_center)
+                    nose_to_left_eye = np.linalg.norm(nose_tip - left_eye_center)
+                    nose_to_right_eye = np.linalg.norm(nose_tip - right_eye_center)
+
+                    # Check symmetry (frontal face should be symmetric)
+                    symmetry_ratio = min(nose_to_left_eye, nose_to_right_eye) / max(nose_to_left_eye, nose_to_right_eye)
+
+                    if symmetry_ratio > 0.85:
+                        quality_score += 15
+                    elif symmetry_ratio > 0.70:
+                        quality_score += 8
+                        if nose_to_left_eye < nose_to_right_eye:
+                            issues.append({"type": "angle", "severity": "warning", "message": "Turn your head slightly to the right."})
+                        else:
+                            issues.append({"type": "angle", "severity": "warning", "message": "Turn your head slightly to the left."})
+                    else:
+                        issues.append({"type": "angle", "severity": "error", "message": "Face the camera directly. Don't turn your head."})
+            except:
+                # If landmark detection fails, give partial points
+                quality_score += 8
+
+            # Determine overall success
+            success = quality_score >= 70 and not any(issue['severity'] == 'error' for issue in issues)
+
+            return json.dumps({
+                "success": success,
+                "quality_score": quality_score,
+                "message": f"Quality score: {quality_score}/100",
+                "issues": issues,
+                "metrics": {
+                    "blur_score": float(laplacian_var),
+                    "brightness": float(brightness),
+                    "face_size_ratio": float(face_size_ratio),
+                    "center_offset": float(max_offset)
+                }
+            })
+
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"❌ Error checking face quality: {e}\n")
+            sys.stderr.flush()
+            return json.dumps({
+                "success": False,
+                "quality_score": 0,
+                "message": f"Error checking face quality: {str(e)}",
+                "issues": [{"type": "error", "severity": "error", "message": str(e)}]
+            })
+
     @pyqtSlot(int, str, result=str)
     def registerFaceEncoding(self, employee_id, photo_base64):
         """
@@ -851,6 +1090,29 @@ class KioskBridge(QObject):
             })
 
         try:
+            # First, check photo quality before processing
+            quality_check_result = self.checkFaceQuality(photo_base64)
+            quality_data = json.loads(quality_check_result)
+
+            # If quality check fails, return detailed error
+            if not quality_data.get('success', False):
+                import sys
+                sys.stderr.write(f"⚠️ Face quality check failed: {quality_data.get('message')}\n")
+                sys.stderr.flush()
+
+                # Return detailed quality issues
+                return json.dumps({
+                    "success": False,
+                    "message": quality_data.get('message', 'Photo quality check failed'),
+                    "quality_score": quality_data.get('quality_score', 0),
+                    "issues": quality_data.get('issues', [])
+                })
+
+            # Quality check passed, proceed with registration
+            import sys
+            sys.stderr.write(f"✅ Face quality check passed: {quality_data.get('quality_score')}/100\n")
+            sys.stderr.flush()
+
             # Remove data URL prefix
             if "base64," in photo_base64:
                 photo_base64 = photo_base64.split("base64,")[1]
@@ -1003,8 +1265,8 @@ class KioskBridge(QObject):
             # Get the face encoding to match
             unknown_face_encoding = face_encodings[0]
 
-            # Get all registered face encodings from database
-            registered_employees = self.db.get_all_face_encodings()
+            # Get all registered face encodings (uses cache for performance)
+            registered_employees = self._get_cached_face_encodings()
 
             if not registered_employees:
                 return json.dumps({
@@ -1016,6 +1278,7 @@ class KioskBridge(QObject):
             # Compare against all registered faces
             best_match = None
             best_distance = 1.0  # Lower is better, 0.0 is perfect match
+            HIGH_CONFIDENCE_THRESHOLD = 0.4  # Early stopping threshold for very confident matches
 
             for emp_id, name, face_encoding_json, employee_number in registered_employees:
                 # Parse stored encoding
@@ -1023,6 +1286,18 @@ class KioskBridge(QObject):
 
                 # Calculate face distance (lower = more similar)
                 face_distance = face_recognition.face_distance([stored_encoding], unknown_face_encoding)[0]
+
+                # OPTIMIZATION: Early stopping if we find a very high confidence match
+                # This avoids checking remaining employees when we're very confident
+                if face_distance < HIGH_CONFIDENCE_THRESHOLD:
+                    best_match = {
+                        "id": emp_id,
+                        "name": name,
+                        "employee_number": employee_number,
+                        "confidence": round((1 - face_distance) * 100, 2)
+                    }
+                    best_distance = face_distance
+                    break  # Stop searching, we found a highly confident match
 
                 # Check if this is the best match so far
                 if face_distance < best_distance:
@@ -1170,6 +1445,198 @@ class KioskBridge(QObject):
                 "success": False,
                 "message": f"Error getting face registration statuses: {str(e)}",
                 "data": []
+            })
+
+    @pyqtSlot(result=str)
+    def populateDummyFaceData(self):
+        """
+        Populate dummy face data for ALL employees for performance testing.
+        Generates unique random face encodings for each employee.
+        WARNING: This will overwrite any existing face registrations.
+
+        Returns:
+            str: JSON string with result
+        """
+        import json
+        import numpy as np
+        import time
+        import sqlite3
+
+        try:
+            start_time = time.time()
+
+            # Get all active employees
+            conn = sqlite3.connect(self.db.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, employee_number
+                FROM employee
+                WHERE deleted_at IS NULL
+                ORDER BY id
+            """)
+            employees = cursor.fetchall()
+            conn.close()
+
+            if not employees:
+                return json.dumps({
+                    "success": False,
+                    "message": "No employees found in database",
+                    "count": 0,
+                    "duration": 0
+                })
+
+            # Generate and save dummy face encodings
+            success_count = 0
+            failed_count = 0
+
+            for employee_id, name, employee_number in employees:
+                try:
+                    # Generate unique random face encoding (128 dimensions)
+                    # Use range -0.5 to 0.5 which is realistic for face_recognition encodings
+                    face_encoding = np.random.uniform(-0.5, 0.5, 128)
+                    face_encoding_json = json.dumps(face_encoding.tolist())
+
+                    # Use dummy photo path
+                    photo_path = "dummy_face_test.png"
+
+                    # Save to database
+                    success, msg = self.db.save_face_encoding(
+                        employee_id,
+                        face_encoding_json,
+                        photo_path
+                    )
+
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                        import sys
+                        sys.stderr.write(f"⚠️ Failed to save dummy face for employee {employee_id}: {msg}\n")
+                        sys.stderr.flush()
+
+                except Exception as e:
+                    failed_count += 1
+                    import sys
+                    sys.stderr.write(f"❌ Error processing employee {employee_id}: {e}\n")
+                    sys.stderr.flush()
+
+            # Clear face encodings cache after bulk update
+            self._face_encodings_cache = None
+            self._cache_timestamp = None
+
+            end_time = time.time()
+            duration = round(end_time - start_time, 2)
+
+            import sys
+            sys.stderr.write(f"✅ Populated dummy face data: {success_count} successful, {failed_count} failed, {duration}s\n")
+            sys.stderr.flush()
+
+            return json.dumps({
+                "success": True,
+                "message": f"Successfully populated dummy face data for {success_count} employees",
+                "count": success_count,
+                "failed": failed_count,
+                "total": len(employees),
+                "duration": duration
+            })
+
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"❌ Error in populateDummyFaceData: {e}\n")
+            sys.stderr.flush()
+            return json.dumps({
+                "success": False,
+                "message": f"Error populating dummy face data: {str(e)}",
+                "count": 0,
+                "duration": 0
+            })
+
+    @pyqtSlot(result=str)
+    def clearAllFaceData(self):
+        """
+        Clear ALL face registrations for all employees.
+        Used for cleanup after performance testing.
+
+        Returns:
+            str: JSON string with result
+        """
+        import json
+        import time
+        import sqlite3
+
+        try:
+            start_time = time.time()
+
+            # Get all employees with face registrations
+            conn = sqlite3.connect(self.db.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name
+                FROM employee
+                WHERE has_face_registration = 1 AND deleted_at IS NULL
+            """)
+            employees = cursor.fetchall()
+            conn.close()
+
+            if not employees:
+                return json.dumps({
+                    "success": True,
+                    "message": "No face registrations to clear",
+                    "count": 0,
+                    "duration": 0
+                })
+
+            # Clear face encodings for all employees
+            success_count = 0
+            failed_count = 0
+
+            for employee_id, name in employees:
+                try:
+                    success, msg = self.db.delete_face_encoding(employee_id)
+
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                        import sys
+                        sys.stderr.write(f"⚠️ Failed to clear face for employee {employee_id}: {msg}\n")
+                        sys.stderr.flush()
+
+                except Exception as e:
+                    failed_count += 1
+                    import sys
+                    sys.stderr.write(f"❌ Error clearing face for employee {employee_id}: {e}\n")
+                    sys.stderr.flush()
+
+            # Clear face encodings cache after bulk deletion
+            self._face_encodings_cache = None
+            self._cache_timestamp = None
+
+            end_time = time.time()
+            duration = round(end_time - start_time, 2)
+
+            import sys
+            sys.stderr.write(f"✅ Cleared face data: {success_count} successful, {failed_count} failed, {duration}s\n")
+            sys.stderr.flush()
+
+            return json.dumps({
+                "success": True,
+                "message": f"Successfully cleared face data for {success_count} employees",
+                "count": success_count,
+                "failed": failed_count,
+                "total": len(employees),
+                "duration": duration
+            })
+
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"❌ Error in clearAllFaceData: {e}\n")
+            sys.stderr.flush()
+            return json.dumps({
+                "success": False,
+                "message": f"Error clearing face data: {str(e)}",
+                "count": 0,
+                "duration": 0
             })
 
     @pyqtSlot(result=str)
