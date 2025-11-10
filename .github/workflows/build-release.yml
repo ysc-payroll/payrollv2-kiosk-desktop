@@ -68,58 +68,64 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Placeholder for Windows build - uncomment and configure when ready
-  # build-windows:
-  #   name: Build Windows EXE
-  #   runs-on: windows-latest
-  #
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Set up Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: '20'
-  #         cache: 'npm'
-  #         cache-dependency-path: 'frontend/package-lock.json'
-  #
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: '3.10'
-  #         cache: 'pip'
-  #
-  #     - name: Install frontend dependencies
-  #       working-directory: ./frontend
-  #       run: npm ci
-  #
-  #     - name: Build frontend
-  #       working-directory: ./frontend
-  #       run: npm run build
-  #
-  #     - name: Install backend dependencies
-  #       working-directory: ./backend
-  #       run: |
-  #         python -m pip install --upgrade pip
-  #         pip install pyinstaller
-  #         pip install -r requirements.txt
-  #
-  #     - name: Build Windows EXE with PyInstaller
-  #       working-directory: ./backend
-  #       run: |
-  #         pyinstaller --clean --distpath ../dist --workpath build timekeeper-windows.spec
-  #
-  #     - name: Create Windows Installer (optional - requires Inno Setup or similar)
-  #       run: |
-  #         # TODO: Add Windows installer creation script
-  #         echo "Windows installer creation not configured yet"
-  #
-  #     - name: Upload EXE to Release
-  #       uses: softprops/action-gh-release@v1
-  #       with:
-  #         files: |
-  #           dist/TimekeeperPayroll-*.exe
-  #         generate_release_notes: true
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Create Windows ICO icon
+        working-directory: ./icons
+        run: |
+          python -m pip install pillow
+          python create_ico.py
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build Windows EXE with PyInstaller
+        working-directory: ./backend
+        run: |
+          pyinstaller --clean --distpath ../dist --workpath build timekeeper-windows.spec
+
+      - name: Create ZIP archive
+        working-directory: ./dist
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          Compress-Archive -Path TimekeeperPayroll/* -DestinationPath TimekeeperPayroll-v$version-Windows.zip
+
+      - name: Upload Windows ZIP to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/TimekeeperPayroll-*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

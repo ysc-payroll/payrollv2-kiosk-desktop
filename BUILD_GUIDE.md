@@ -2,7 +2,7 @@
 
 ## Quick Build Script
 
-### One-Command Build
+### macOS Build (One-Command)
 
 ```bash
 ./build_release.sh
@@ -14,29 +14,70 @@ This script will automatically:
 3. ✅ Generate DMG installer
 4. ✅ Show build summary
 
+### Windows Build (One-Command)
+
+```cmd
+build_release_windows.bat
+```
+
+This script will automatically:
+1. ✅ Build Vue.js frontend (`npm run build`)
+2. ✅ Create Windows icon (.ico)
+3. ✅ Create PyInstaller executable
+4. ✅ Generate ZIP archive
+5. ✅ Show build summary
+
 ---
 
 ## Manual Build Process
 
+### macOS
+
 If you prefer to run each step manually:
 
-### Step 1: Build Frontend
+#### Step 1: Build Frontend
 ```bash
 cd frontend
 npm run build
 ```
 
-### Step 2: Build PyInstaller Bundle
+#### Step 2: Build PyInstaller Bundle
 ```bash
 cd backend
 pyenv local 3.10.13
-pyinstaller --clean timekeeper.spec
+pyinstaller --clean --distpath ../dist --workpath build timekeeper.spec
 ```
 
-### Step 3: Create DMG
+#### Step 3: Create DMG
 ```bash
 cd backend
 ./create_dmg.sh
+```
+
+### Windows
+
+#### Step 1: Build Frontend
+```cmd
+cd frontend
+npm run build
+```
+
+#### Step 2: Create Windows Icon
+```cmd
+cd icons
+python create_ico.py
+```
+
+#### Step 3: Build PyInstaller Executable
+```cmd
+cd backend
+pyinstaller --clean --distpath ../dist --workpath build timekeeper-windows.spec
+```
+
+#### Step 4: Create ZIP Archive
+```cmd
+cd dist
+powershell -Command "Compress-Archive -Path TimekeeperPayroll\* -DestinationPath TimekeeperPayroll-Windows.zip -Force"
 ```
 
 ---
@@ -65,6 +106,8 @@ const API_BASE_URL = 'http://localhost:8000'
 
 ## Build Output
 
+### macOS
+
 After successful build, you'll find:
 
 ```
@@ -73,22 +116,49 @@ dist/
 └── TimekeeperPayroll-v2.0.0.dmg # DMG installer
 ```
 
+### Windows
+
+After successful build, you'll find:
+
+```
+dist/
+├── TimekeeperPayroll/          # Executable folder
+│   ├── TimekeeperPayroll.exe  # Main executable
+│   ├── frontend/              # Built Vue.js app
+│   └── [PyQt6 and Python runtime files]
+└── TimekeeperPayroll-Windows.zip # ZIP archive for distribution
+```
+
 All build artifacts are in the **project root `dist/` directory**, not `backend/dist/`.
 
 ---
 
 ## Testing the Build
 
-### Test the App Bundle
+### macOS
+
+**Test the App Bundle**
 ```bash
 open "dist/Timekeeper Payroll.app"
 ```
 
-### Test the DMG
+**Test the DMG**
 1. Double-click `TimekeeperPayroll-v2.0.0.dmg`
 2. Drag app to Applications folder
 3. Eject the DMG volume
 4. Launch from Applications
+
+### Windows
+
+**Test the Executable**
+```cmd
+dist\TimekeeperPayroll\TimekeeperPayroll.exe
+```
+
+**Test the ZIP Archive**
+1. Extract `TimekeeperPayroll-Windows.zip` to a new folder
+2. Run `TimekeeperPayroll.exe`
+3. Verify all features work (camera, database, API calls)
 
 ---
 
@@ -181,15 +251,76 @@ df -h
 
 ---
 
+## GitHub Actions - Automated Builds
+
+The repository includes automated build workflows that trigger on version tags.
+
+### Creating a Release
+
+1. **Commit all changes**
+   ```bash
+   git add .
+   git commit -m "Release v2.0.2"
+   git push origin main
+   ```
+
+2. **Create and push version tag**
+   ```bash
+   git tag v2.0.2
+   git push origin v2.0.2
+   ```
+
+3. **GitHub Actions automatically:**
+   - Builds macOS DMG (on `macos-latest` runner)
+   - Builds Windows ZIP (on `windows-latest` runner)
+   - Creates GitHub Release with both artifacts
+   - Generates release notes
+
+4. **Download artifacts from:**
+   ```
+   https://github.com/[username]/[repo]/releases/tag/v2.0.2
+   ```
+
+### Build Workflow
+
+Both macOS and Windows builds run in parallel:
+
+```
+Tag pushed (v2.0.2)
+    ├─> macOS Build Job
+    │   ├─ Install Node.js & Python
+    │   ├─ Build frontend
+    │   ├─ Build PyInstaller app
+    │   ├─ Create DMG
+    │   └─ Upload to Release
+    │
+    └─> Windows Build Job
+        ├─ Install Node.js & Python
+        ├─ Build frontend
+        ├─ Create .ico icon
+        ├─ Build PyInstaller .exe
+        ├─ Create ZIP archive
+        └─ Upload to Release
+```
+
+### Monitoring Builds
+
+View build progress at:
+```
+https://github.com/[username]/[repo]/actions
+```
+
+---
+
 ## Distribution
 
-After building:
+After building (locally or via GitHub Actions):
 
 1. **Test thoroughly** on your machine
 2. **Test on a clean machine** if possible
-3. **Sign the app** (optional, requires Apple Developer account)
-4. **Notarize** (optional, for Gatekeeper)
-5. **Upload to distribution server**
+3. **Sign the app** (optional, requires Apple Developer account for macOS)
+4. **Notarize** (optional, for macOS Gatekeeper)
+5. **Upload to distribution server** or use GitHub Releases
 6. **Share download link with users**
 
 ---
