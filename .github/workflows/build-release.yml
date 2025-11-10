@@ -9,67 +9,68 @@ permissions:
   contents: write  # Required to create releases and upload assets
 
 jobs:
-  build-macos:
-    name: Build macOS DMG
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'frontend/package-lock.json'
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'
-
-      - name: Install frontend dependencies
-        working-directory: ./frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: ./frontend
-        run: npm run build
-
-      - name: Install backend dependencies
-        working-directory: ./backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      - name: Build macOS app with PyInstaller
-        working-directory: ./backend
-        run: |
-          pyinstaller --clean --distpath ../dist --workpath build timekeeper.spec
-
-      - name: Create DMG installer
-        working-directory: ./backend
-        run: |
-          chmod +x create_dmg.sh
-          ./create_dmg.sh
-
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Upload DMG to Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            dist/TimekeeperPayroll-*.dmg
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Temporarily disabled to focus on Windows build
+  # build-macos:
+  #   name: Build macOS DMG
+  #   runs-on: macos-latest
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Set up Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '20'
+  #         cache: 'npm'
+  #         cache-dependency-path: 'frontend/package-lock.json'
+  #
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.10'
+  #         cache: 'pip'
+  #
+  #     - name: Install frontend dependencies
+  #       working-directory: ./frontend
+  #       run: npm ci
+  #
+  #     - name: Build frontend
+  #       working-directory: ./frontend
+  #       run: npm run build
+  #
+  #     - name: Install backend dependencies
+  #       working-directory: ./backend
+  #       run: |
+  #         python -m pip install --upgrade pip
+  #         pip install pyinstaller
+  #         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+  #
+  #     - name: Build macOS app with PyInstaller
+  #       working-directory: ./backend
+  #       run: |
+  #         pyinstaller --clean --distpath ../dist --workpath build timekeeper.spec
+  #
+  #     - name: Create DMG installer
+  #       working-directory: ./backend
+  #       run: |
+  #         chmod +x create_dmg.sh
+  #         ./create_dmg.sh
+  #
+  #     - name: Get version from tag
+  #       id: version
+  #       run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+  #
+  #     - name: Upload DMG to Release
+  #       uses: softprops/action-gh-release@v1
+  #       with:
+  #         files: |
+  #           dist/TimekeeperPayroll-*.dmg
+  #         generate_release_notes: true
+  #         draft: false
+  #         prerelease: false
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
     name: Build Windows EXE

@@ -27,7 +27,7 @@ def create_ico(png_path, ico_path):
         sizes=sizes,
         append_images=icon_images[1:]
     )
-    print(f"✓ Created {ico_path} with sizes: {', '.join(f'{s[0]}x{s[1]}' for s in sizes)}")
+    print(f"Created {ico_path} with sizes: {', '.join(f'{s[0]}x{s[1]}' for s in sizes)}")
 
 if __name__ == '__main__':
     script_dir = Path(__file__).parent
