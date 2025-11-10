@@ -23,7 +23,6 @@ a = Analysis(
     binaries=[],
     datas=[
         ('../frontend/dist', 'frontend/dist'),  # Include built frontend
-        ('database', 'database'),  # Include database folder
     ] + face_models_datas,  # Include face recognition model files
     hiddenimports=[
         'PyQt6.QtCore',
