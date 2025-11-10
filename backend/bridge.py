@@ -925,12 +925,13 @@ class KioskBridge(QObject):
             face_size_ratio = face_area / frame_area
 
             # 2. Blur Detection (30 points)
+            # Adjusted thresholds for typical webcam quality (720p-1080p)
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-            if laplacian_var > 150:
+            if laplacian_var > 100:
                 quality_score += 30
-            elif laplacian_var > 100:
+            elif laplacian_var > 50:
                 quality_score += 20
                 issues.append({"type": "blur", "severity": "warning", "message": "Image is slightly blurry. Hold camera steady."})
             else:
