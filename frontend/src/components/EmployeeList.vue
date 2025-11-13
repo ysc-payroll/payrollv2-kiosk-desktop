@@ -710,7 +710,7 @@ const closePopulateDummyDialog = () => {
   showPopulateDummyDialog.value = false
 }
 
-const handlePopulateDummyData = async () => {
+const handlePopulateDummyData = () => {
   isPopulatingDummy.value = true
   closePopulateDummyDialog()
 
@@ -720,27 +720,8 @@ const handlePopulateDummyData = async () => {
       throw new Error('Bridge not initialized')
     }
 
-    // Set up signal listener for when operation completes
-    // Wait a bit for QWebChannel to fully initialize if needed
-    await new Promise(resolve => setTimeout(resolve, 100))
-
-    // Try to disconnect existing listener (safe to fail if none exists)
-    try {
-      if (window.kioskBridge.populateFaceDataComplete &&
-          typeof window.kioskBridge.populateFaceDataComplete.disconnect === 'function') {
-        window.kioskBridge.populateFaceDataComplete.disconnect(handlePopulateComplete)
-      }
-    } catch (e) {
-      // Ignore disconnect errors
-    }
-
-    // Connect new listener
-    if (window.kioskBridge.populateFaceDataComplete &&
-        typeof window.kioskBridge.populateFaceDataComplete.connect === 'function') {
-      window.kioskBridge.populateFaceDataComplete.connect(handlePopulateComplete)
-    }
-
     // Start the background operation (non-blocking)
+    // The signal listener is already set up in onMounted()
     window.kioskBridge.populateDummyFaceData()
 
     console.log('🔄 Populating dummy face data in background...')
@@ -794,7 +775,7 @@ const closeClearFaceDialog = () => {
   showClearFaceDialog.value = false
 }
 
-const handleClearAllFaceData = async () => {
+const handleClearAllFaceData = () => {
   isClearingFaces.value = true
   closeClearFaceDialog()
 
@@ -804,27 +785,8 @@ const handleClearAllFaceData = async () => {
       throw new Error('Bridge not initialized')
     }
 
-    // Set up signal listener for when operation completes
-    // Wait a bit for QWebChannel to fully initialize if needed
-    await new Promise(resolve => setTimeout(resolve, 100))
-
-    // Try to disconnect existing listener (safe to fail if none exists)
-    try {
-      if (window.kioskBridge.clearFaceDataComplete &&
-          typeof window.kioskBridge.clearFaceDataComplete.disconnect === 'function') {
-        window.kioskBridge.clearFaceDataComplete.disconnect(handleClearComplete)
-      }
-    } catch (e) {
-      // Ignore disconnect errors
-    }
-
-    // Connect new listener
-    if (window.kioskBridge.clearFaceDataComplete &&
-        typeof window.kioskBridge.clearFaceDataComplete.connect === 'function') {
-      window.kioskBridge.clearFaceDataComplete.connect(handleClearComplete)
-    }
-
     // Start the background operation (non-blocking)
+    // The signal listener is already set up in onMounted()
     window.kioskBridge.clearAllFaceData()
 
     console.log('🔄 Clearing face data in background...')
@@ -872,6 +834,30 @@ const handleClearComplete = async (resultJson) => {
 // Load employees on mount
 onMounted(() => {
   fetchEmployees()
+
+  // Set up signal listeners for background operations (one-time setup)
+  // These listeners persist for the lifetime of the component
+  if (window.kioskBridge) {
+    // Connect populate complete signal
+    if (window.kioskBridge.populateFaceDataComplete) {
+      try {
+        window.kioskBridge.populateFaceDataComplete.connect(handlePopulateComplete)
+        console.log('✅ Connected populateFaceDataComplete signal')
+      } catch (e) {
+        console.warn('Could not connect populateFaceDataComplete:', e)
+      }
+    }
+
+    // Connect clear complete signal
+    if (window.kioskBridge.clearFaceDataComplete) {
+      try {
+        window.kioskBridge.clearFaceDataComplete.connect(handleClearComplete)
+        console.log('✅ Connected clearFaceDataComplete signal')
+      } catch (e) {
+        console.warn('Could not connect clearFaceDataComplete:', e)
+      }
+    }
+  }
 })
 </script>
 
