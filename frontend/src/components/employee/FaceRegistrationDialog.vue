@@ -101,19 +101,19 @@
         <div v-if="capturedPhoto && qualityScore !== null" class="mb-4 space-y-3">
           <!-- Quality Score -->
           <div class="p-4 rounded-lg border" :class="{
-            'bg-green-50 border-green-200': qualityScore >= 80,
-            'bg-amber-50 border-amber-200': qualityScore >= 50 && qualityScore < 80,
+            'bg-green-50 border-green-200': qualityScore >= 70,
+            'bg-amber-50 border-amber-200': qualityScore >= 50 && qualityScore < 70,
             'bg-red-50 border-red-200': qualityScore < 50
           }">
             <div class="flex items-center justify-between mb-2">
               <span class="text-sm font-semibold" :class="{
-                'text-green-900': qualityScore >= 80,
-                'text-amber-900': qualityScore >= 50 && qualityScore < 80,
+                'text-green-900': qualityScore >= 70,
+                'text-amber-900': qualityScore >= 50 && qualityScore < 70,
                 'text-red-900': qualityScore < 50
               }">Quality Score</span>
               <span class="text-2xl font-bold" :class="{
-                'text-green-600': qualityScore >= 80,
-                'text-amber-600': qualityScore >= 50 && qualityScore < 80,
+                'text-green-600': qualityScore >= 70,
+                'text-amber-600': qualityScore >= 50 && qualityScore < 70,
                 'text-red-600': qualityScore < 50
               }">{{ qualityScore }}/100</span>
             </div>
@@ -121,8 +121,8 @@
             <!-- Progress bar -->
             <div class="w-full bg-gray-200 rounded-full h-2">
               <div class="h-2 rounded-full transition-all" :class="{
-                'bg-green-500': qualityScore >= 80,
-                'bg-amber-500': qualityScore >= 50 && qualityScore < 80,
+                'bg-green-500': qualityScore >= 70,
+                'bg-amber-500': qualityScore >= 50 && qualityScore < 70,
                 'bg-red-500': qualityScore < 50
               }" :style="{ width: qualityScore + '%' }"></div>
             </div>
@@ -131,7 +131,7 @@
           <!-- Issues List -->
           <div v-if="qualityIssues.length > 0" class="p-4 bg-slate-50 border border-slate-200 rounded-lg">
             <h4 class="text-sm font-semibold text-slate-900 mb-2">
-              {{ qualityScore >= 80 ? 'Suggestions for Improvement:' : 'Issues to Fix:' }}
+              {{ qualityScore >= 70 ? 'Suggestions for Improvement:' : 'Issues to Fix:' }}
             </h4>
             <ul class="space-y-2">
               <li v-for="(issue, index) in qualityIssues" :key="index" class="flex items-start gap-2 text-sm">
@@ -151,12 +151,12 @@
           </div>
 
           <!-- Success message if no issues -->
-          <div v-else-if="qualityScore >= 80" class="p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div v-else-if="qualityScore >= 70" class="p-4 bg-green-50 border border-green-200 rounded-lg">
             <div class="flex items-center gap-2 text-green-800">
               <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              <span class="text-sm font-medium">Perfect! Photo quality is excellent.</span>
+              <span class="text-sm font-medium">Good! Photo quality is acceptable.</span>
             </div>
           </div>
         </div>
@@ -182,7 +182,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             Retake Photo
-            <span v-if="qualityScore < 80 && qualityScore !== null" class="ml-1 text-xs">(Required)</span>
+            <span v-if="qualityScore < 70 && qualityScore !== null" class="ml-1 text-xs">(Required)</span>
           </button>
 
           <button
@@ -201,8 +201,8 @@
           <button
             v-if="capturedPhoto"
             @click="registerFace"
-            :disabled="isProcessing || isCheckingQuality || (qualityScore !== null && qualityScore < 80)"
-            :title="qualityScore !== null && qualityScore < 80 ? 'Quality must be 80 or higher - please retake photo' : ''"
+            :disabled="isProcessing || isCheckingQuality || (qualityScore !== null && qualityScore < 70)"
+            :title="qualityScore !== null && qualityScore < 70 ? 'Quality must be 70 or higher - please retake photo' : ''"
             class="px-4 py-2 text-sm font-medium text-white bg-green-500 hover:bg-green-600 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span v-if="!isProcessing && !isCheckingQuality" class="flex items-center">
@@ -351,12 +351,9 @@ const checkPhotoQuality = async () => {
     qualityMetrics.value = result.metrics || null
 
     // Update status based on quality
-    if (result.success && result.quality_score >= 80) {
-      statusMessage.value = `Excellent quality! (${result.quality_score}/100) - Ready to register`
+    if (result.success && result.quality_score >= 70) {
+      statusMessage.value = `Good quality! (${result.quality_score}/100) - Ready to register`
       statusClass.value = 'bg-green-50 border border-green-200 text-green-800'
-    } else if (result.quality_score >= 70) {
-      statusMessage.value = `Good quality (${result.quality_score}/100), but needs improvement. Please retake for 80+.`
-      statusClass.value = 'bg-amber-50 border border-amber-200 text-amber-800'
     } else if (result.quality_score >= 50) {
       statusMessage.value = `Fair quality (${result.quality_score}/100). Please address the issues below.`
       statusClass.value = 'bg-amber-50 border border-amber-200 text-amber-800'
