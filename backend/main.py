@@ -165,6 +165,15 @@ class KioskWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+
+        # Windows-specific: Disable hardware acceleration to prevent blinking/flickering
+        # This fixes the issue where opening camera dialogs causes the entire app to blink
+        if sys.platform == 'win32':
+            logger.info("STEP 11a: Applying Windows-specific settings")
+            settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
+            settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, False)
+            logger.info("STEP 11b: Hardware acceleration disabled for Windows")
+
         logger.info("STEP 12: Settings attributes configured")
 
         logger.info("STEP 13: About to configure cache settings")
@@ -355,6 +364,12 @@ def main():
     """Application entry point."""
     logger.info("main() function starting")
     try:
+        # Windows-specific: Disable GPU/hardware acceleration via command-line args
+        # This prevents blinking/flickering when opening dialogs with camera streams
+        if sys.platform == 'win32':
+            logger.info("Applying Windows-specific GPU workarounds")
+            os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--disable-gpu --disable-software-rasterizer --disable-gpu-compositing'
+
         logger.info("Creating QApplication")
         app = QApplication(sys.argv)
         app.setApplicationName("Timekeeper Kiosk")

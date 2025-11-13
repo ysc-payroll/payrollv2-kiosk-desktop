@@ -461,10 +461,15 @@ const formatDate = (dateStr) => {
 // Watch for dialog open/close
 watch(() => props.isOpen, (newVal) => {
   if (newVal) {
-    setTimeout(() => {
-      initCamera()
-    }, 100)
+    // Use requestAnimationFrame for smoother initialization on Windows
+    // This prevents render conflicts with the dialog opening animation
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        initCamera()
+      }, 150)
+    })
   } else {
+    // Ensure camera is stopped immediately when closing
     stopCamera()
     capturedPhoto.value = null
     isCapturing.value = false
