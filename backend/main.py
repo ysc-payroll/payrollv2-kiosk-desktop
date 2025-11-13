@@ -25,11 +25,13 @@ if getattr(sys, 'frozen', False):
     if qtwebengine_process.exists():
         os.environ['QTWEBENGINEPROCESS_PATH'] = str(qtwebengine_process)
         # Write to stderr BEFORE logging is set up
-        sys.stderr.write(f"✅ [QTWEBENGINE] Set QTWEBENGINEPROCESS_PATH={qtwebengine_process}\n")
-        sys.stderr.flush()
+        if sys.stderr:
+            sys.stderr.write(f"[QTWEBENGINE] Set QTWEBENGINEPROCESS_PATH={qtwebengine_process}\n")
+            sys.stderr.flush()
     else:
-        sys.stderr.write(f"❌ [QTWEBENGINE] QtWebEngineProcess NOT FOUND at {qtwebengine_process}\n")
-        sys.stderr.flush()
+        if sys.stderr:
+            sys.stderr.write(f"[QTWEBENGINE] QtWebEngineProcess NOT FOUND at {qtwebengine_process}\n")
+            sys.stderr.flush()
 
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from PyQt6.QtWidgets import QApplication, QMainWindow
