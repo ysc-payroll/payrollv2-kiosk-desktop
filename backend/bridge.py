@@ -6,13 +6,16 @@ import base64
 import os
 from datetime import datetime
 from pathlib import Path
-from PyQt6.QtCore import QObject, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QFileDialog
 from database import Database, get_app_data_dir
 
 
 class KioskBridge(QObject):
     """Bridge between Vue.js frontend and Python backend."""
+
+    # Signals for progress updates
+    populateProgressUpdate = pyqtSignal(str)  # Emits JSON with progress info
 
     def __init__(self, parent=None):
         super().__init__()
@@ -22,6 +25,9 @@ class KioskBridge(QObject):
         self._face_encodings_cache = None
         self._cache_timestamp = None
         self._cache_ttl_seconds = 300  # Cache expires after 5 minutes
+        # Batch processing state
+        self._populate_timer = None
+        self._populate_state = None
 
     @pyqtSlot(str, str, str, result=str)
     def logTimeEntry(self, employee_id, action, photo_base64):
@@ -1448,24 +1454,18 @@ class KioskBridge(QObject):
                 "data": []
             })
 
-    @pyqtSlot(result=str)
+    @pyqtSlot()
     def populateDummyFaceData(self):
         """
-        Populate dummy face data for ALL employees for performance testing.
-        Generates unique random face encodings for each employee.
-        WARNING: This will overwrite any existing face registrations.
-
-        Returns:
-            str: JSON string with result
+        Start populating dummy face data with progress updates.
+        Processes employees in batches of 100 to keep UI responsive.
+        Emits populateProgressUpdate signal for each batch.
         """
         import json
-        import numpy as np
         import time
         import sqlite3
 
         try:
-            start_time = time.time()
-
             # Get all active employees
             conn = sqlite3.connect(self.db.db_path)
             cursor = conn.cursor()
@@ -1479,78 +1479,123 @@ class KioskBridge(QObject):
             conn.close()
 
             if not employees:
-                return json.dumps({
+                # Emit immediate completion with no employees
+                self.populateProgressUpdate.emit(json.dumps({
+                    "processed": 0,
+                    "total": 0,
+                    "percent": 100,
+                    "complete": True,
                     "success": False,
-                    "message": "No employees found in database",
-                    "count": 0,
-                    "duration": 0
-                })
+                    "message": "No employees found in database"
+                }))
+                return
 
-            # Generate and save dummy face encodings
-            success_count = 0
-            failed_count = 0
-
-            for employee_id, name, employee_number in employees:
-                try:
-                    # Generate unique random face encoding (128 dimensions)
-                    # Use range -0.5 to 0.5 which is realistic for face_recognition encodings
-                    face_encoding = np.random.uniform(-0.5, 0.5, 128)
-                    face_encoding_json = json.dumps(face_encoding.tolist())
-
-                    # Use dummy photo path
-                    photo_path = "dummy_face_test.png"
-
-                    # Save to database
-                    success, msg = self.db.save_face_encoding(
-                        employee_id,
-                        face_encoding_json,
-                        photo_path
-                    )
-
-                    if success:
-                        success_count += 1
-                    else:
-                        failed_count += 1
-                        import sys
-                        sys.stderr.write(f"⚠️ Failed to save dummy face for employee {employee_id}: {msg}\n")
-                        sys.stderr.flush()
-
-                except Exception as e:
-                    failed_count += 1
-                    import sys
-                    sys.stderr.write(f"❌ Error processing employee {employee_id}: {e}\n")
-                    sys.stderr.flush()
-
-            # Clear face encodings cache after bulk update
-            self._face_encodings_cache = None
-            self._cache_timestamp = None
-
-            end_time = time.time()
-            duration = round(end_time - start_time, 2)
-
-            import sys
-            sys.stderr.write(f"✅ Populated dummy face data: {success_count} successful, {failed_count} failed, {duration}s\n")
-            sys.stderr.flush()
-
-            return json.dumps({
-                "success": True,
-                "message": f"Successfully populated dummy face data for {success_count} employees",
-                "count": success_count,
-                "failed": failed_count,
+            # Initialize batch processing state
+            self._populate_state = {
+                "employees": employees,
                 "total": len(employees),
-                "duration": duration
-            })
+                "current_index": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "batch_size": 100,
+                "start_time": time.time()
+            }
+
+            # Start processing first batch
+            self._process_populate_batch()
 
         except Exception as e:
             import sys
-            sys.stderr.write(f"❌ Error in populateDummyFaceData: {e}\n")
+            sys.stderr.write(f"❌ Error starting populateDummyFaceData: {e}\n")
             sys.stderr.flush()
-            return json.dumps({
+            self.populateProgressUpdate.emit(json.dumps({
+                "processed": 0,
+                "total": 0,
+                "percent": 0,
+                "complete": True,
                 "success": False,
-                "message": f"Error populating dummy face data: {str(e)}",
-                "count": 0,
-                "duration": 0
-            })
+                "message": f"Error: {str(e)}"
+            }))
+
+    def _process_populate_batch(self):
+        """Process one batch of employees (called by QTimer)."""
+        import json
+        import numpy as np
+        import time
+
+        if not self._populate_state:
+            return
+
+        state = self._populate_state
+        employees = state["employees"]
+        start_idx = state["current_index"]
+        end_idx = min(start_idx + state["batch_size"], state["total"])
+
+        # Process this batch
+        for i in range(start_idx, end_idx):
+            employee_id, name, employee_number = employees[i]
+            try:
+                # Generate unique random face encoding (128 dimensions)
+                face_encoding = np.random.uniform(-0.5, 0.5, 128)
+                face_encoding_json = json.dumps(face_encoding.tolist())
+                photo_path = "dummy_face_test.png"
+
+                # Save to database
+                success, msg = self.db.save_face_encoding(
+                    employee_id,
+                    face_encoding_json,
+                    photo_path
+                )
+
+                if success:
+                    state["success_count"] += 1
+                else:
+                    state["failed_count"] += 1
+
+            except Exception as e:
+                state["failed_count"] += 1
+
+        # Update current index
+        state["current_index"] = end_idx
+        processed = state["current_index"]
+        total = state["total"]
+        percent = round((processed / total) * 100)
+
+        # Emit progress update
+        self.populateProgressUpdate.emit(json.dumps({
+            "processed": processed,
+            "total": total,
+            "percent": percent,
+            "complete": False
+        }))
+
+        # Check if we're done
+        if processed >= total:
+            # All batches complete
+            duration = round(time.time() - state["start_time"], 2)
+
+            # Clear cache
+            self._face_encodings_cache = None
+            self._cache_timestamp = None
+
+            # Emit final completion
+            self.populateProgressUpdate.emit(json.dumps({
+                "processed": processed,
+                "total": total,
+                "percent": 100,
+                "complete": True,
+                "success": True,
+                "message": f"Successfully populated dummy face data for {state['success_count']} employees",
+                "count": state["success_count"],
+                "failed": state["failed_count"],
+                "duration": duration
+            }))
+
+            # Clean up state
+            self._populate_state = None
+        else:
+            # Schedule next batch with QTimer (allows UI to update)
+            QTimer.singleShot(10, self._process_populate_batch)
 
     @pyqtSlot(result=str)
     def clearAllFaceData(self):

@@ -437,6 +437,16 @@
       @close="closeFaceDialog"
       @success="handleFaceRegistrationSuccess"
     />
+
+    <!-- Progress Modal -->
+    <ProgressModal
+      :is-open="showProgressModal"
+      title="Populating Face Data"
+      :processed="progressData.processed"
+      :total="progressData.total"
+      :percent="progressData.percent"
+      :message="progressData.message"
+    />
   </div>
 </template>
 
@@ -444,6 +454,7 @@
 import { ref, computed, onMounted } from 'vue'
 import apiService from '../services/api.js'
 import FaceRegistrationDialog from './employee/FaceRegistrationDialog.vue'
+import ProgressModal from './shared/ProgressModal.vue'
 
 // State
 const allEmployees = ref([])          // All employees from API
@@ -469,6 +480,15 @@ const syncResult = ref({
   deleted_count: 0,
   skipped_count: 0,
   skipped_details: []
+})
+
+// Progress modal state
+const showProgressModal = ref(false)
+const progressData = ref({
+  processed: 0,
+  total: 0,
+  percent: 0,
+  message: ''
 })
 
 // Computed properties
@@ -710,34 +730,67 @@ const closePopulateDummyDialog = () => {
   showPopulateDummyDialog.value = false
 }
 
-const handlePopulateDummyData = async () => {
-  isPopulatingDummy.value = true
+const handlePopulateDummyData = () => {
   closePopulateDummyDialog()
 
+  // Show progress modal
+  showProgressModal.value = true
+  progressData.value = {
+    processed: 0,
+    total: 0,
+    percent: 0,
+    message: 'Initializing...'
+  }
+
   try {
-    const resultJson = await window.kioskBridge.populateDummyFaceData()
-    const result = JSON.parse(resultJson)
+    // Start the background operation (no await - it will emit progress updates)
+    window.kioskBridge.populateDummyFaceData()
+    console.log('🔄 Started populating dummy face data...')
+  } catch (error) {
+    console.error('Error starting populate operation:', error)
+    window.showToast?.('Error starting populate operation', 'error')
+    showProgressModal.value = false
+  }
+}
 
-    if (result.success) {
-      console.log(`✅ Populated dummy face data: ${result.count} employees in ${result.duration}s`)
+// Handler for progress updates from backend
+const handlePopulateProgress = async (progressJson) => {
+  try {
+    const progress = JSON.parse(progressJson)
 
-      // Show success toast
-      window.showToast?.(
-        `Successfully populated dummy face data for ${result.count} employees in ${result.duration}s`,
-        'success'
-      )
+    // Update progress display
+    progressData.value = {
+      processed: progress.processed,
+      total: progress.total,
+      percent: progress.percent,
+      message: progress.complete ? 'Completing...' : `Processing batch...`
+    }
 
-      // Reload employees to show updated face registration status
-      await fetchEmployees()
-    } else {
-      console.error('Failed to populate dummy face data:', result.message)
-      window.showToast?.(result.message || 'Failed to populate dummy face data', 'error')
+    // Check if operation is complete
+    if (progress.complete) {
+      // Hide progress modal
+      showProgressModal.value = false
+
+      if (progress.success) {
+        console.log(`✅ Populated dummy face data: ${progress.count} employees in ${progress.duration}s`)
+
+        // Show success toast
+        window.showToast?.(
+          `Successfully populated dummy face data for ${progress.count} employees in ${progress.duration}s`,
+          'success'
+        )
+
+        // Reload employees to show updated face registration status
+        await fetchEmployees()
+      } else {
+        console.error('Failed to populate dummy face data:', progress.message)
+        window.showToast?.(progress.message || 'Failed to populate dummy face data', 'error')
+      }
     }
   } catch (error) {
-    console.error('Error populating dummy face data:', error)
-    window.showToast?.('Error populating dummy face data', 'error')
-  } finally {
-    isPopulatingDummy.value = false
+    console.error('Error processing progress update:', error)
+    showProgressModal.value = false
+    window.showToast?.('Error processing progress update', 'error')
   }
 }
 
@@ -784,6 +837,16 @@ const handleClearAllFaceData = async () => {
 // Load employees on mount
 onMounted(() => {
   fetchEmployees()
+
+  // Connect to progress update signal
+  if (window.kioskBridge && window.kioskBridge.populateProgressUpdate) {
+    try {
+      window.kioskBridge.populateProgressUpdate.connect(handlePopulateProgress)
+      console.log('✅ Connected populateProgressUpdate signal')
+    } catch (e) {
+      console.warn('Could not connect populateProgressUpdate:', e)
+    }
+  }
 })
 </script>
 
