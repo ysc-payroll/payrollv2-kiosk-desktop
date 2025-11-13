@@ -710,17 +710,33 @@ const closePopulateDummyDialog = () => {
   showPopulateDummyDialog.value = false
 }
 
-const handlePopulateDummyData = () => {
+const handlePopulateDummyData = async () => {
   isPopulatingDummy.value = true
   closePopulateDummyDialog()
 
   try {
+    // Check if bridge is available
+    if (!window.kioskBridge || !window.kioskBridge.populateDummyFaceData) {
+      throw new Error('Bridge not initialized')
+    }
+
     // Set up signal listener for when operation completes
-    // This runs in a background thread, so UI stays responsive
-    if (window.kioskBridge.populateFaceDataComplete) {
-      // Remove any existing listener first
-      window.kioskBridge.populateFaceDataComplete.disconnect?.(handlePopulateComplete)
-      // Connect new listener
+    // Wait a bit for QWebChannel to fully initialize if needed
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // Try to disconnect existing listener (safe to fail if none exists)
+    try {
+      if (window.kioskBridge.populateFaceDataComplete &&
+          typeof window.kioskBridge.populateFaceDataComplete.disconnect === 'function') {
+        window.kioskBridge.populateFaceDataComplete.disconnect(handlePopulateComplete)
+      }
+    } catch (e) {
+      // Ignore disconnect errors
+    }
+
+    // Connect new listener
+    if (window.kioskBridge.populateFaceDataComplete &&
+        typeof window.kioskBridge.populateFaceDataComplete.connect === 'function') {
       window.kioskBridge.populateFaceDataComplete.connect(handlePopulateComplete)
     }
 
@@ -739,9 +755,14 @@ const handlePopulateDummyData = () => {
 // Handler for when background populate operation completes
 const handlePopulateComplete = async (resultJson) => {
   try {
+    // Handle null or undefined results
+    if (!resultJson) {
+      throw new Error('No result received from populate operation')
+    }
+
     const result = JSON.parse(resultJson)
 
-    if (result.success) {
+    if (result && result.success) {
       console.log(`✅ Populated dummy face data: ${result.count} employees in ${result.duration}s`)
 
       // Show success toast
@@ -753,12 +774,12 @@ const handlePopulateComplete = async (resultJson) => {
       // Reload employees to show updated face registration status
       await fetchEmployees()
     } else {
-      console.error('Failed to populate dummy face data:', result.message)
-      window.showToast?.(result.message || 'Failed to populate dummy face data', 'error')
+      console.error('Failed to populate dummy face data:', result?.message)
+      window.showToast?.(result?.message || 'Failed to populate dummy face data', 'error')
     }
   } catch (error) {
     console.error('Error processing populate result:', error)
-    window.showToast?.('Error processing populate result', 'error')
+    window.showToast?.(`Error processing populate result: ${error.message}`, 'error')
   } finally {
     isPopulatingDummy.value = false
   }
@@ -773,17 +794,33 @@ const closeClearFaceDialog = () => {
   showClearFaceDialog.value = false
 }
 
-const handleClearAllFaceData = () => {
+const handleClearAllFaceData = async () => {
   isClearingFaces.value = true
   closeClearFaceDialog()
 
   try {
+    // Check if bridge is available
+    if (!window.kioskBridge || !window.kioskBridge.clearAllFaceData) {
+      throw new Error('Bridge not initialized')
+    }
+
     // Set up signal listener for when operation completes
-    // This runs in a background thread, so UI stays responsive
-    if (window.kioskBridge.clearFaceDataComplete) {
-      // Remove any existing listener first
-      window.kioskBridge.clearFaceDataComplete.disconnect?.(handleClearComplete)
-      // Connect new listener
+    // Wait a bit for QWebChannel to fully initialize if needed
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // Try to disconnect existing listener (safe to fail if none exists)
+    try {
+      if (window.kioskBridge.clearFaceDataComplete &&
+          typeof window.kioskBridge.clearFaceDataComplete.disconnect === 'function') {
+        window.kioskBridge.clearFaceDataComplete.disconnect(handleClearComplete)
+      }
+    } catch (e) {
+      // Ignore disconnect errors
+    }
+
+    // Connect new listener
+    if (window.kioskBridge.clearFaceDataComplete &&
+        typeof window.kioskBridge.clearFaceDataComplete.connect === 'function') {
       window.kioskBridge.clearFaceDataComplete.connect(handleClearComplete)
     }
 
@@ -802,9 +839,14 @@ const handleClearAllFaceData = () => {
 // Handler for when background clear operation completes
 const handleClearComplete = async (resultJson) => {
   try {
+    // Handle null or undefined results
+    if (!resultJson) {
+      throw new Error('No result received from clear operation')
+    }
+
     const result = JSON.parse(resultJson)
 
-    if (result.success) {
+    if (result && result.success) {
       console.log(`✅ Cleared face data: ${result.count} employees in ${result.duration}s`)
 
       // Show success toast
@@ -816,12 +858,12 @@ const handleClearComplete = async (resultJson) => {
       // Reload employees to show updated face registration status
       await fetchEmployees()
     } else {
-      console.error('Failed to clear face data:', result.message)
-      window.showToast?.(result.message || 'Failed to clear face data', 'error')
+      console.error('Failed to clear face data:', result?.message)
+      window.showToast?.(result?.message || 'Failed to clear face data', 'error')
     }
   } catch (error) {
     console.error('Error processing clear result:', error)
-    window.showToast?.('Error processing clear result', 'error')
+    window.showToast?.(`Error processing clear result: ${error.message}`, 'error')
   } finally {
     isClearingFaces.value = false
   }
