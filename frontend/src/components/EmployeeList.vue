@@ -710,12 +710,35 @@ const closePopulateDummyDialog = () => {
   showPopulateDummyDialog.value = false
 }
 
-const handlePopulateDummyData = async () => {
+const handlePopulateDummyData = () => {
   isPopulatingDummy.value = true
   closePopulateDummyDialog()
 
   try {
-    const resultJson = await window.kioskBridge.populateDummyFaceData()
+    // Set up signal listener for when operation completes
+    // This runs in a background thread, so UI stays responsive
+    if (window.kioskBridge.populateFaceDataComplete) {
+      // Remove any existing listener first
+      window.kioskBridge.populateFaceDataComplete.disconnect?.(handlePopulateComplete)
+      // Connect new listener
+      window.kioskBridge.populateFaceDataComplete.connect(handlePopulateComplete)
+    }
+
+    // Start the background operation (non-blocking)
+    window.kioskBridge.populateDummyFaceData()
+
+    console.log('🔄 Populating dummy face data in background...')
+    window.showToast?.('Populating face data in background...', 'info')
+  } catch (error) {
+    console.error('Error starting populate operation:', error)
+    window.showToast?.('Error starting populate operation', 'error')
+    isPopulatingDummy.value = false
+  }
+}
+
+// Handler for when background populate operation completes
+const handlePopulateComplete = async (resultJson) => {
+  try {
     const result = JSON.parse(resultJson)
 
     if (result.success) {
@@ -734,8 +757,8 @@ const handlePopulateDummyData = async () => {
       window.showToast?.(result.message || 'Failed to populate dummy face data', 'error')
     }
   } catch (error) {
-    console.error('Error populating dummy face data:', error)
-    window.showToast?.('Error populating dummy face data', 'error')
+    console.error('Error processing populate result:', error)
+    window.showToast?.('Error processing populate result', 'error')
   } finally {
     isPopulatingDummy.value = false
   }
@@ -750,12 +773,35 @@ const closeClearFaceDialog = () => {
   showClearFaceDialog.value = false
 }
 
-const handleClearAllFaceData = async () => {
+const handleClearAllFaceData = () => {
   isClearingFaces.value = true
   closeClearFaceDialog()
 
   try {
-    const resultJson = await window.kioskBridge.clearAllFaceData()
+    // Set up signal listener for when operation completes
+    // This runs in a background thread, so UI stays responsive
+    if (window.kioskBridge.clearFaceDataComplete) {
+      // Remove any existing listener first
+      window.kioskBridge.clearFaceDataComplete.disconnect?.(handleClearComplete)
+      // Connect new listener
+      window.kioskBridge.clearFaceDataComplete.connect(handleClearComplete)
+    }
+
+    // Start the background operation (non-blocking)
+    window.kioskBridge.clearAllFaceData()
+
+    console.log('🔄 Clearing face data in background...')
+    window.showToast?.('Clearing face data in background...', 'info')
+  } catch (error) {
+    console.error('Error starting clear operation:', error)
+    window.showToast?.('Error starting clear operation', 'error')
+    isClearingFaces.value = false
+  }
+}
+
+// Handler for when background clear operation completes
+const handleClearComplete = async (resultJson) => {
+  try {
     const result = JSON.parse(resultJson)
 
     if (result.success) {
@@ -763,7 +809,7 @@ const handleClearAllFaceData = async () => {
 
       // Show success toast
       window.showToast?.(
-        `Successfully cleared face data for ${result.count} employees`,
+        `Successfully cleared face data for ${result.count} employees in ${result.duration}s`,
         'success'
       )
 
@@ -774,8 +820,8 @@ const handleClearAllFaceData = async () => {
       window.showToast?.(result.message || 'Failed to clear face data', 'error')
     }
   } catch (error) {
-    console.error('Error clearing face data:', error)
-    window.showToast?.('Error clearing face data', 'error')
+    console.error('Error processing clear result:', error)
+    window.showToast?.('Error processing clear result', 'error')
   } finally {
     isClearingFaces.value = false
   }

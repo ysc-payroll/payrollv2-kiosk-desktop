@@ -6,13 +6,181 @@ import base64
 import os
 from datetime import datetime
 from pathlib import Path
-from PyQt6.QtCore import QObject, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QThread, QRunnable, QThreadPool
 from PyQt6.QtWidgets import QFileDialog
 from database import Database, get_app_data_dir
 
 
+class PopulateFaceDataWorker(QThread):
+    """Background worker for populating dummy face data."""
+    finished = pyqtSignal(str)  # Emits JSON result when done
+
+    def __init__(self, db_path):
+        super().__init__()
+        self.db_path = db_path
+
+    def run(self):
+        """Run the populate operation in background thread."""
+        import json
+        import numpy as np
+        import time
+        import sqlite3
+        from database import Database
+
+        try:
+            start_time = time.time()
+            db = Database()
+
+            # Get all active employees
+            conn = sqlite3.connect(db.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, employee_number
+                FROM employee
+                WHERE deleted_at IS NULL
+                ORDER BY id
+            """)
+            employees = cursor.fetchall()
+            conn.close()
+
+            if not employees:
+                self.finished.emit(json.dumps({
+                    "success": False,
+                    "message": "No employees found in database",
+                    "count": 0,
+                    "duration": 0
+                }))
+                return
+
+            # Generate and save dummy face encodings
+            success_count = 0
+            failed_count = 0
+
+            for employee_id, name, employee_number in employees:
+                try:
+                    # Generate unique random face encoding (128 dimensions)
+                    face_encoding = np.random.uniform(-0.5, 0.5, 128)
+                    face_encoding_json = json.dumps(face_encoding.tolist())
+                    photo_path = "dummy_face_test.png"
+
+                    # Save to database
+                    success, msg = db.save_face_encoding(
+                        employee_id,
+                        face_encoding_json,
+                        photo_path
+                    )
+
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+
+                except Exception as e:
+                    failed_count += 1
+
+            end_time = time.time()
+            duration = round(end_time - start_time, 2)
+
+            self.finished.emit(json.dumps({
+                "success": True,
+                "message": f"Successfully populated dummy face data for {success_count} employees",
+                "count": success_count,
+                "failed": failed_count,
+                "total": len(employees),
+                "duration": duration
+            }))
+
+        except Exception as e:
+            self.finished.emit(json.dumps({
+                "success": False,
+                "message": f"Error populating dummy face data: {str(e)}",
+                "count": 0,
+                "duration": 0
+            }))
+
+
+class ClearFaceDataWorker(QThread):
+    """Background worker for clearing all face data."""
+    finished = pyqtSignal(str)  # Emits JSON result when done
+
+    def __init__(self, db_path):
+        super().__init__()
+        self.db_path = db_path
+
+    def run(self):
+        """Run the clear operation in background thread."""
+        import json
+        import time
+        import sqlite3
+        from database import Database
+
+        try:
+            start_time = time.time()
+            db = Database()
+
+            # Get all employees with face registrations
+            conn = sqlite3.connect(db.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name
+                FROM employee
+                WHERE has_face_registration = 1 AND deleted_at IS NULL
+            """)
+            employees = cursor.fetchall()
+            conn.close()
+
+            if not employees:
+                self.finished.emit(json.dumps({
+                    "success": True,
+                    "message": "No face registrations to clear",
+                    "count": 0,
+                    "duration": 0
+                }))
+                return
+
+            # Clear face encodings for all employees
+            success_count = 0
+            failed_count = 0
+
+            for employee_id, name in employees:
+                try:
+                    success, msg = db.delete_face_encoding(employee_id)
+
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+
+                except Exception as e:
+                    failed_count += 1
+
+            end_time = time.time()
+            duration = round(end_time - start_time, 2)
+
+            self.finished.emit(json.dumps({
+                "success": True,
+                "message": f"Successfully cleared face data for {success_count} employees",
+                "count": success_count,
+                "failed": failed_count,
+                "total": len(employees),
+                "duration": duration
+            }))
+
+        except Exception as e:
+            self.finished.emit(json.dumps({
+                "success": False,
+                "message": f"Error clearing face data: {str(e)}",
+                "count": 0,
+                "duration": 0
+            }))
+
+
 class KioskBridge(QObject):
     """Bridge between Vue.js frontend and Python backend."""
+
+    # Signals to emit results from background operations
+    populateFaceDataComplete = pyqtSignal(str)
+    clearFaceDataComplete = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__()
@@ -22,6 +190,9 @@ class KioskBridge(QObject):
         self._face_encodings_cache = None
         self._cache_timestamp = None
         self._cache_ttl_seconds = 300  # Cache expires after 5 minutes
+        # Track background workers
+        self._populate_worker = None
+        self._clear_worker = None
 
     @pyqtSlot(str, str, str, result=str)
     def logTimeEntry(self, employee_id, action, photo_base64):
@@ -1448,197 +1619,61 @@ class KioskBridge(QObject):
                 "data": []
             })
 
-    @pyqtSlot(result=str)
+    @pyqtSlot()
     def populateDummyFaceData(self):
         """
-        Populate dummy face data for ALL employees for performance testing.
-        Generates unique random face encodings for each employee.
-        WARNING: This will overwrite any existing face registrations.
-
-        Returns:
-            str: JSON string with result
+        Start populating dummy face data in a background thread.
+        This prevents UI freezing when processing many employees.
+        The result will be emitted via populateFaceDataComplete signal.
         """
         import json
-        import numpy as np
-        import time
-        import sqlite3
 
-        try:
-            start_time = time.time()
+        # Check if already running
+        if self._populate_worker is not None and self._populate_worker.isRunning():
+            return
 
-            # Get all active employees
-            conn = sqlite3.connect(self.db.db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, name, employee_number
-                FROM employee
-                WHERE deleted_at IS NULL
-                ORDER BY id
-            """)
-            employees = cursor.fetchall()
-            conn.close()
+        # Create and start worker thread
+        self._populate_worker = PopulateFaceDataWorker(self.db.db_path)
 
-            if not employees:
-                return json.dumps({
-                    "success": False,
-                    "message": "No employees found in database",
-                    "count": 0,
-                    "duration": 0
-                })
-
-            # Generate and save dummy face encodings
-            success_count = 0
-            failed_count = 0
-
-            for employee_id, name, employee_number in employees:
-                try:
-                    # Generate unique random face encoding (128 dimensions)
-                    # Use range -0.5 to 0.5 which is realistic for face_recognition encodings
-                    face_encoding = np.random.uniform(-0.5, 0.5, 128)
-                    face_encoding_json = json.dumps(face_encoding.tolist())
-
-                    # Use dummy photo path
-                    photo_path = "dummy_face_test.png"
-
-                    # Save to database
-                    success, msg = self.db.save_face_encoding(
-                        employee_id,
-                        face_encoding_json,
-                        photo_path
-                    )
-
-                    if success:
-                        success_count += 1
-                    else:
-                        failed_count += 1
-                        import sys
-                        sys.stderr.write(f"⚠️ Failed to save dummy face for employee {employee_id}: {msg}\n")
-                        sys.stderr.flush()
-
-                except Exception as e:
-                    failed_count += 1
-                    import sys
-                    sys.stderr.write(f"❌ Error processing employee {employee_id}: {e}\n")
-                    sys.stderr.flush()
-
-            # Clear face encodings cache after bulk update
+        # Connect the worker's finished signal to our bridge signal
+        # and also clear cache when done
+        def on_worker_finished(result_json):
+            # Clear cache after population
             self._face_encodings_cache = None
             self._cache_timestamp = None
+            # Emit to JavaScript
+            self.populateFaceDataComplete.emit(result_json)
 
-            end_time = time.time()
-            duration = round(end_time - start_time, 2)
+        self._populate_worker.finished.connect(on_worker_finished)
+        self._populate_worker.start()
 
-            import sys
-            sys.stderr.write(f"✅ Populated dummy face data: {success_count} successful, {failed_count} failed, {duration}s\n")
-            sys.stderr.flush()
-
-            return json.dumps({
-                "success": True,
-                "message": f"Successfully populated dummy face data for {success_count} employees",
-                "count": success_count,
-                "failed": failed_count,
-                "total": len(employees),
-                "duration": duration
-            })
-
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"❌ Error in populateDummyFaceData: {e}\n")
-            sys.stderr.flush()
-            return json.dumps({
-                "success": False,
-                "message": f"Error populating dummy face data: {str(e)}",
-                "count": 0,
-                "duration": 0
-            })
-
-    @pyqtSlot(result=str)
+    @pyqtSlot()
     def clearAllFaceData(self):
         """
-        Clear ALL face registrations for all employees.
-        Used for cleanup after performance testing.
-
-        Returns:
-            str: JSON string with result
+        Start clearing all face data in a background thread.
+        This prevents UI freezing when processing many employees.
+        The result will be emitted via clearFaceDataComplete signal.
         """
         import json
-        import time
-        import sqlite3
 
-        try:
-            start_time = time.time()
+        # Check if already running
+        if self._clear_worker is not None and self._clear_worker.isRunning():
+            return
 
-            # Get all employees with face registrations
-            conn = sqlite3.connect(self.db.db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, name
-                FROM employee
-                WHERE has_face_registration = 1 AND deleted_at IS NULL
-            """)
-            employees = cursor.fetchall()
-            conn.close()
+        # Create and start worker thread
+        self._clear_worker = ClearFaceDataWorker(self.db.db_path)
 
-            if not employees:
-                return json.dumps({
-                    "success": True,
-                    "message": "No face registrations to clear",
-                    "count": 0,
-                    "duration": 0
-                })
-
-            # Clear face encodings for all employees
-            success_count = 0
-            failed_count = 0
-
-            for employee_id, name in employees:
-                try:
-                    success, msg = self.db.delete_face_encoding(employee_id)
-
-                    if success:
-                        success_count += 1
-                    else:
-                        failed_count += 1
-                        import sys
-                        sys.stderr.write(f"⚠️ Failed to clear face for employee {employee_id}: {msg}\n")
-                        sys.stderr.flush()
-
-                except Exception as e:
-                    failed_count += 1
-                    import sys
-                    sys.stderr.write(f"❌ Error clearing face for employee {employee_id}: {e}\n")
-                    sys.stderr.flush()
-
-            # Clear face encodings cache after bulk deletion
+        # Connect the worker's finished signal to our bridge signal
+        # and also clear cache when done
+        def on_worker_finished(result_json):
+            # Clear cache after clearing
             self._face_encodings_cache = None
             self._cache_timestamp = None
+            # Emit to JavaScript
+            self.clearFaceDataComplete.emit(result_json)
 
-            end_time = time.time()
-            duration = round(end_time - start_time, 2)
-
-            import sys
-            sys.stderr.write(f"✅ Cleared face data: {success_count} successful, {failed_count} failed, {duration}s\n")
-            sys.stderr.flush()
-
-            return json.dumps({
-                "success": True,
-                "message": f"Successfully cleared face data for {success_count} employees",
-                "count": success_count,
-                "failed": failed_count,
-                "total": len(employees),
-                "duration": duration
-            })
-
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"❌ Error in clearAllFaceData: {e}\n")
-            sys.stderr.flush()
-            return json.dumps({
-                "success": False,
-                "message": f"Error clearing face data: {str(e)}",
-                "count": 0,
-                "duration": 0
-            })
+        self._clear_worker.finished.connect(on_worker_finished)
+        self._clear_worker.start()
 
     @pyqtSlot(result=str)
     def resetDatabase(self):
