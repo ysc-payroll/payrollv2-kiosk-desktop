@@ -205,22 +205,26 @@ onMounted(async () => {
       window.kioskBridge = kioskBridge // Expose globally for API service
       console.log('PyQt bridge connected')
 
-      // Only load data if authenticated
-      if (isAuthenticated.value) {
-        loadCompanyInfo()
-        loadRecentLogs()
+      // Wait a bit for QWebChannel to fully initialize before calling bridge methods
+      // This prevents "channel.execCallbacks[message.id] is not a function" errors
+      setTimeout(() => {
+        // Only load data if authenticated
+        if (isAuthenticated.value) {
+          loadCompanyInfo()
+          loadRecentLogs()
 
-        // Sync employees if we're authenticated (e.g., from stored session)
-        console.log('🔄 Bridge ready, syncing employees...')
-        syncEmployeesFromAPI()
-      }
+          // Sync employees if we're authenticated (e.g., from stored session)
+          console.log('🔄 Bridge ready, syncing employees...')
+          syncEmployeesFromAPI()
+        }
 
-      // If there's a pending sync from login, execute it now
-      if (pendingSyncAfterLogin) {
-        console.log('🔄 Bridge ready, executing pending sync from login...')
-        pendingSyncAfterLogin = false
-        syncEmployeesFromAPI()
-      }
+        // If there's a pending sync from login, execute it now
+        if (pendingSyncAfterLogin) {
+          console.log('🔄 Bridge ready, executing pending sync from login...')
+          pendingSyncAfterLogin = false
+          syncEmployeesFromAPI()
+        }
+      }, 200)  // 200ms delay to ensure channel is fully ready
     })
   } else {
     console.warn('PyQt bridge not available - running in browser mode')
