@@ -53,6 +53,74 @@
           </ul>
         </div>
 
+        <!-- Action Buttons (at top, before camera) -->
+        <div class="flex items-center justify-end gap-3 mb-4">
+          <button
+            v-if="!capturedPhoto"
+            @click="handleClose"
+            class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+            :disabled="isProcessing"
+          >
+            Cancel
+          </button>
+
+          <button
+            v-if="capturedPhoto"
+            @click="retakePhoto"
+            class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            :disabled="isProcessing || isCheckingQuality"
+          >
+            <svg class="inline h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Retake Photo
+            <span v-if="qualityScore < 70 && qualityScore !== null" class="ml-1 text-xs">(Required)</span>
+          </button>
+
+          <button
+            v-if="!capturedPhoto"
+            @click="capturePhoto"
+            :disabled="!isCameraReady || isProcessing"
+            class="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg class="inline h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Capture Photo
+          </button>
+
+          <button
+            v-if="capturedPhoto"
+            @click="registerFace"
+            :disabled="isProcessing || isCheckingQuality || (qualityScore !== null && qualityScore < 70)"
+            :title="qualityScore !== null && qualityScore < 70 ? 'Quality must be 70 or higher - please retake photo' : ''"
+            class="px-4 py-2 text-sm font-medium text-white bg-green-500 hover:bg-green-600 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span v-if="!isProcessing && !isCheckingQuality" class="flex items-center">
+              <svg class="h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              {{ hasExisting ? 'Update' : 'Register' }} Face
+              <span v-if="qualityScore >= 70" class="ml-1">✓</span>
+            </span>
+            <span v-else-if="isCheckingQuality" class="flex items-center">
+              <svg class="animate-spin h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Checking quality...
+            </span>
+            <span v-else class="flex items-center">
+              <svg class="animate-spin h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Processing...
+            </span>
+          </button>
+        </div>
+
         <!-- Camera Preview or Captured Photo -->
         <div class="relative bg-slate-900 rounded-lg overflow-hidden mb-4" style="aspect-ratio: 4/3;">
           <!-- Mirror Toggle Button (top-right corner) -->
@@ -183,74 +251,6 @@
               <span class="text-sm font-medium">Good! Photo quality is acceptable.</span>
             </div>
           </div>
-        </div>
-
-        <!-- Actions -->
-        <div class="flex items-center justify-end gap-3">
-          <button
-            v-if="!capturedPhoto"
-            @click="handleClose"
-            class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
-            :disabled="isProcessing"
-          >
-            Cancel
-          </button>
-
-          <button
-            v-if="capturedPhoto"
-            @click="retakePhoto"
-            class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-            :disabled="isProcessing || isCheckingQuality"
-          >
-            <svg class="inline h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Retake Photo
-            <span v-if="qualityScore < 70 && qualityScore !== null" class="ml-1 text-xs">(Required)</span>
-          </button>
-
-          <button
-            v-if="!capturedPhoto"
-            @click="capturePhoto"
-            :disabled="!isCameraReady || isProcessing"
-            class="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <svg class="inline h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Capture Photo
-          </button>
-
-          <button
-            v-if="capturedPhoto"
-            @click="registerFace"
-            :disabled="isProcessing || isCheckingQuality || (qualityScore !== null && qualityScore < 70)"
-            :title="qualityScore !== null && qualityScore < 70 ? 'Quality must be 70 or higher - please retake photo' : ''"
-            class="px-4 py-2 text-sm font-medium text-white bg-green-500 hover:bg-green-600 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <span v-if="!isProcessing && !isCheckingQuality" class="flex items-center">
-              <svg class="h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              {{ hasExisting ? 'Update' : 'Register' }} Face
-              <span v-if="qualityScore >= 70" class="ml-1">✓</span>
-            </span>
-            <span v-else-if="isCheckingQuality" class="flex items-center">
-              <svg class="animate-spin h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Checking quality...
-            </span>
-            <span v-else class="flex items-center">
-              <svg class="animate-spin h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Processing...
-            </span>
-          </button>
         </div>
       </div>
     </div>
