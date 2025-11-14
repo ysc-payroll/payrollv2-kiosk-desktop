@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   build-macos:
-    name: Build macOS DMG
-    runs-on: macos-latest
+    name: Build macOS DMG (Intel - Compatible with all Macs)
+    runs-on: macos-13  # Intel runner - works on Intel AND Apple Silicon (via Rosetta 2)
   
     steps:
       - name: Checkout code
