@@ -80,6 +80,81 @@ class EmployeeService {
       }
     }
   }
+
+  /**
+   * Upload face encoding to cloud after successful registration
+   * @param {number} employeeId - Employee database ID
+   * @param {string} faceEncodingJson - JSON string of 128-dimensional face encoding array
+   */
+  async uploadFaceEncoding(employeeId, faceEncodingJson) {
+    try {
+      const response = await this.http.post(`/api/employees/${employeeId}/face/`, {
+        face_encoding: faceEncodingJson
+      })
+
+      return {
+        success: true,
+        data: response,
+        message: 'Face encoding uploaded successfully'
+      }
+
+    } catch (error) {
+      console.error('Error uploading face encoding:', error)
+      return {
+        success: false,
+        message: error.message || 'Failed to upload face encoding'
+      }
+    }
+  }
+
+  /**
+   * Delete face encoding from cloud
+   * @param {number} employeeId - Employee database ID
+   */
+  async deleteFaceEncoding(employeeId) {
+    try {
+      const response = await this.http.delete(`/api/employees/${employeeId}/face/`)
+
+      return {
+        success: true,
+        data: response,
+        message: 'Face encoding deleted successfully'
+      }
+
+    } catch (error) {
+      console.error('Error deleting face encoding:', error)
+      return {
+        success: false,
+        message: error.message || 'Failed to delete face encoding'
+      }
+    }
+  }
+
+  /**
+   * Download all employees with face data from cloud
+   * Used for syncing face encodings on app startup
+   */
+  async getEmployeesWithFaces() {
+    try {
+      const response = await this.http.get('/api/employees/timekeeper/')
+
+      // Response includes face_encoding, face_registered_at, has_face_registration
+      return {
+        success: true,
+        data: response || [],
+        totalRecords: response ? response.length : 0
+      }
+
+    } catch (error) {
+      console.error('Error fetching employees with faces:', error)
+      return {
+        success: false,
+        message: error.message,
+        data: [],
+        totalRecords: 0
+      }
+    }
+  }
 }
 
 // Create singleton instance

@@ -23,12 +23,19 @@ const inputRef = ref(null)
 const employeeId = ref('')
 const cameraReady = ref(false)
 const cameraEnabled = ref(true) // Camera toggle state
+const cameraMirrored = ref(true) // Camera mirror/flip state (default: mirrored like a mirror)
 const isProcessing = ref(false)
 
 // Face recognition mode
 const useFaceRecognition = ref(false)
 const isFaceScanning = ref(false)
 const faceRecognitionInterval = ref(null)
+
+// Cooldown after clock-in (prevents same person from being detected immediately)
+const isInCooldown = ref(false)
+const cooldownSeconds = ref(5)
+const cooldownTimer = ref(null)
+const lastClockedEmployee = ref(null) // Store last employee info for success message
 
 // Employee validation state
 const employeeValidation = ref({
@@ -139,6 +146,46 @@ const stopFaceScanning = () => {
     faceRecognitionInterval.value = null
   }
   isFaceScanning.value = false
+}
+
+// Cooldown Management (prevents same person from being detected immediately after clock-in)
+const startCooldown = (employeeName, action) => {
+  isInCooldown.value = true
+  cooldownSeconds.value = 5
+  lastClockedEmployee.value = {
+    name: employeeName,
+    action: action,
+    time: new Date().toLocaleTimeString()
+  }
+
+  // Stop face scanning during cooldown
+  stopFaceScanning()
+
+  // Start countdown timer
+  cooldownTimer.value = setInterval(() => {
+    cooldownSeconds.value--
+    if (cooldownSeconds.value <= 0) {
+      resetAfterCooldown()
+    }
+  }, 1000)
+}
+
+const resetAfterCooldown = () => {
+  // Clear countdown timer
+  if (cooldownTimer.value) {
+    clearInterval(cooldownTimer.value)
+    cooldownTimer.value = null
+  }
+
+  // Reset cooldown state
+  isInCooldown.value = false
+  cooldownSeconds.value = 5
+  lastClockedEmployee.value = null
+
+  // Resume face scanning if in face recognition mode
+  if (useFaceRecognition.value) {
+    startFaceScanning()
+  }
 }
 
 const performFaceRecognition = async () => {
@@ -396,6 +443,10 @@ const handleTimeEntry = async (action) => {
 
       if (result.success) {
         showToast(result.message, 'success')
+
+        // Store employee name before resetting
+        const employeeName = employeeValidation.value.employeeName || 'Employee'
+
         // Reset for next employee
         employeeId.value = ''
 
@@ -406,10 +457,9 @@ const handleTimeEntry = async (action) => {
           isValid: false
         }
 
-        // Restart face scanning if in face recognition mode
-        // This allows the next employee to be recognized automatically
+        // Start cooldown if in face recognition mode, otherwise focus input
         if (useFaceRecognition.value) {
-          startFaceScanning()
+          startCooldown(employeeName, action)
         } else {
           focusInput()
         }
@@ -430,6 +480,10 @@ const handleTimeEntry = async (action) => {
         cameraEnabled: cameraEnabled.value
       })
       showToast(`Clocked ${action} (Browser Mode)`, 'success')
+
+      // Store employee name before resetting
+      const employeeName = employeeValidation.value.employeeName || 'Employee'
+
       employeeId.value = ''
 
       // Reset employee validation state
@@ -439,9 +493,9 @@ const handleTimeEntry = async (action) => {
         isValid: false
       }
 
-      // Restart face scanning if in face recognition mode
+      // Start cooldown if in face recognition mode, otherwise focus input
       if (useFaceRecognition.value) {
-        startFaceScanning()
+        startCooldown(employeeName, action)
       } else {
         focusInput()
       }
@@ -1125,6 +1179,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   stopFaceScanning() // Cleanup face recognition interval
+
+  // Cleanup cooldown timer
+  if (cooldownTimer.value) {
+    clearInterval(cooldownTimer.value)
+    cooldownTimer.value = null
+  }
 })
 </script>
 
@@ -1412,30 +1472,79 @@ onBeforeUnmount(() => {
       <div class="left-section flex flex-col gap-3 h-full">
         <!-- Camera Section with Employee Validation Overlay -->
         <div class="camera-section relative bg-black rounded-lg overflow-hidden flex-shrink-0" style="height: 30vh">
-          <!-- Camera Toggle Button -->
-          <button
-            @click="toggleCamera"
-            class="absolute top-2 right-2 z-10 p-2 rounded-lg shadow-lg transition-all"
-            :style="cameraEnabled ? 'background-color: #1CB454;' : 'background-color: #68625D;'"
-            @mouseover="handleCameraToggleHover($event, true)"
-            @mouseout="handleCameraToggleHover($event, false)"
-            :title="cameraEnabled ? 'Disable Camera' : 'Enable Camera'"
-          >
-            <svg v-if="cameraEnabled" class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            <svg v-else class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-          </button>
+          <!-- Camera Control Buttons -->
+          <div class="absolute top-2 right-2 z-10 flex gap-2">
+            <!-- Flip/Mirror Camera Button -->
+            <button
+              @click="cameraMirrored = !cameraMirrored"
+              class="p-2 rounded-lg shadow-lg transition-all bg-blue-500 hover:bg-blue-600"
+              :title="cameraMirrored ? 'Normal View' : 'Mirror View'"
+            >
+              <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </button>
+
+            <!-- Camera Toggle Button -->
+            <button
+              @click="toggleCamera"
+              class="p-2 rounded-lg shadow-lg transition-all"
+              :style="cameraEnabled ? 'background-color: #1CB454;' : 'background-color: #68625D;'"
+              @mouseover="handleCameraToggleHover($event, true)"
+              @mouseout="handleCameraToggleHover($event, false)"
+              :title="cameraEnabled ? 'Disable Camera' : 'Enable Camera'"
+            >
+              <svg v-if="cameraEnabled" class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <svg v-else class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
 
           <CameraView
             ref="cameraRef"
             :enabled="cameraEnabled"
+            :mirrored="cameraMirrored"
             @ready="handleCameraReady"
             @error="handleCameraError"
           />
+
+          <!-- Cooldown Overlay (after successful clock-in) -->
+          <div
+            v-if="isInCooldown"
+            class="absolute inset-0 bg-gradient-to-br from-green-500/95 to-green-600/95 flex flex-col items-center justify-center gap-4 p-6"
+          >
+            <!-- Success Icon -->
+            <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center">
+              <svg class="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+              </svg>
+            </div>
+
+            <!-- Success Message -->
+            <div class="text-center text-white">
+              <h3 class="text-2xl font-bold mb-1">Success!</h3>
+              <p class="text-lg">{{ lastClockedEmployee?.name }} clocked {{ lastClockedEmployee?.action?.toLowerCase() }}</p>
+              <p class="text-sm opacity-90 mt-1">at {{ lastClockedEmployee?.time }}</p>
+            </div>
+
+            <!-- Countdown Timer -->
+            <div class="text-center">
+              <p class="text-white text-sm mb-2">Next employee can clock in in:</p>
+              <div class="text-6xl font-bold text-white">{{ cooldownSeconds }}</div>
+            </div>
+
+            <!-- Manual Reset Button -->
+            <button
+              @click="resetAfterCooldown"
+              class="mt-4 px-8 py-3 bg-white text-green-600 rounded-lg font-semibold text-lg hover:bg-green-50 transition-all shadow-lg"
+            >
+              Next Employee →
+            </button>
+          </div>
 
           <!-- Employee Validation Status Overlay -->
           <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">

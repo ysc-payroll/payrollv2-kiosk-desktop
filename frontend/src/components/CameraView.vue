@@ -5,6 +5,7 @@
       autoplay
       playsinline
       class="w-full h-full object-cover bg-gray-900"
+      :style="{ transform: mirrored ? 'scaleX(-1)' : 'none' }"
     ></video>
     <canvas ref="canvasElement" class="hidden"></canvas>
 
@@ -45,6 +46,10 @@ const props = defineProps({
   enabled: {
     type: Boolean,
     default: true
+  },
+  mirrored: {
+    type: Boolean,
+    default: true  // Default to mirrored (like a mirror)
   }
 })
 

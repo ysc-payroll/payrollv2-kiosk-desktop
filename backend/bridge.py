@@ -625,27 +625,34 @@ class KioskBridge(QObject):
 
             # Step 1 & 2: Add new and update existing employees
             api_backend_ids = []
+            face_sync_count = 0
 
             for emp in employees:
                 try:
                     # Extract employee data from API response
-                    # API returns: id, timekeeper_id, name
+                    # API returns: id, timekeeper_id, name, face_encoding, face_registered_at, has_face_registration
                     system_id = emp.get('id')  # Maps to backend_id in database
                     employee_number = emp.get('timekeeper_id')  # Maps to employee_number in database
                     full_name = emp.get('name', '')  # Name is already complete
+
+                    # Extract face data from API (new fields)
+                    api_face_encoding = emp.get('face_encoding')  # JSON string or null
+                    api_face_registered_at = emp.get('face_registered_at')  # ISO datetime or null
+                    has_face_registration = emp.get('has_face_registration', False)
 
                     # Track API backend IDs
                     api_backend_ids.append(system_id)
 
                     # Check if employee already exists
                     cursor.execute("""
-                        SELECT id, name, employee_number, deleted_at FROM employee WHERE backend_id = ?
+                        SELECT id, name, employee_number, deleted_at, face_encoding, face_registered_at
+                        FROM employee WHERE backend_id = ?
                     """, (system_id,))
 
                     existing = cursor.fetchone()
 
                     if existing:
-                        emp_id, current_name, current_number, deleted_at = existing
+                        emp_id, current_name, current_number, deleted_at, local_face_encoding, local_face_registered_at = existing
 
                         # Check if data changed or if restoring deleted employee
                         data_changed = (current_name != full_name or current_number != employee_number)
@@ -659,13 +666,47 @@ class KioskBridge(QObject):
                                 WHERE backend_id = ?
                             """, (full_name, employee_number, system_id))
                             updated_count += 1
-                        # else: no changes, don't count anything
+
+                        # Handle face encoding sync
+                        if has_face_registration and api_face_encoding:
+                            # Cloud has face data
+                            if not local_face_encoding:
+                                # Local doesn't have face data - download from cloud
+                                cursor.execute("""
+                                    UPDATE employee
+                                    SET face_encoding = ?,
+                                        face_registered_at = ?,
+                                        has_face_registration = 1
+                                    WHERE id = ?
+                                """, (api_face_encoding, api_face_registered_at, emp_id))
+                                face_sync_count += 1
+                        elif not has_face_registration and local_face_encoding:
+                            # Cloud doesn't have face data but local does - clear local
+                            # (Cloud is source of truth)
+                            cursor.execute("""
+                                UPDATE employee
+                                SET face_encoding = NULL,
+                                    face_registered_at = NULL,
+                                    has_face_registration = 0,
+                                    face_photo_path = NULL
+                                WHERE id = ?
+                            """, (emp_id,))
+                            face_sync_count += 1
+
                     else:
-                        # Insert new employee
-                        cursor.execute("""
-                            INSERT INTO employee (backend_id, name, employee_number)
-                            VALUES (?, ?, ?)
-                        """, (system_id, full_name, employee_number))
+                        # Insert new employee with face data if available
+                        if has_face_registration and api_face_encoding:
+                            cursor.execute("""
+                                INSERT INTO employee (backend_id, name, employee_number,
+                                                    face_encoding, face_registered_at, has_face_registration)
+                                VALUES (?, ?, ?, ?, ?, 1)
+                            """, (system_id, full_name, employee_number, api_face_encoding, api_face_registered_at))
+                            face_sync_count += 1
+                        else:
+                            cursor.execute("""
+                                INSERT INTO employee (backend_id, name, employee_number)
+                                VALUES (?, ?, ?)
+                            """, (system_id, full_name, employee_number))
                         added_count += 1
 
                 except Exception as e:
@@ -723,14 +764,20 @@ class KioskBridge(QObject):
             conn.commit()
             conn.close()
 
+            # Clear face encodings cache after sync
+            if face_sync_count > 0:
+                self._face_encodings_cache = None
+                self._cache_timestamp = None
+
             return json.dumps({
                 "success": True,
                 "added_count": added_count,
                 "updated_count": updated_count,
                 "deleted_count": deleted_count,
                 "skipped_count": skipped_count,
+                "face_sync_count": face_sync_count,
                 "skipped_details": skipped_details,
-                "message": f"Sync complete: {added_count} added, {updated_count} updated, {deleted_count} removed"
+                "message": f"Sync complete: {added_count} added, {updated_count} updated, {deleted_count} removed, {face_sync_count} faces synced"
             })
 
         except Exception as e:
@@ -932,16 +979,21 @@ class KioskBridge(QObject):
 
             # 2. Blur Detection (30 points)
             # Adjusted thresholds for typical webcam quality (720p-1080p)
+            # Lowered thresholds to be more forgiving for standard webcams
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-            if laplacian_var > 100:
+            if laplacian_var > 80:
+                # Good focus - most webcams should achieve this
                 quality_score += 30
-            elif laplacian_var > 50:
+            elif laplacian_var > 30:
+                # Acceptable focus - still usable for face recognition
                 quality_score += 20
                 issues.append({"type": "blur", "severity": "warning", "message": "Image is slightly blurry. Hold camera steady."})
             else:
-                issues.append({"type": "blur", "severity": "error", "message": "Image is too blurry. Ensure camera lens is clean and hold steady."})
+                # Poor focus - but still allow if score >= 70
+                quality_score += 10
+                issues.append({"type": "blur", "severity": "warning", "message": "Image is blurry. Try holding camera steady or cleaning lens."})
 
             # 3. Brightness Check (20 points)
             brightness = np.mean(gray)
@@ -955,25 +1007,31 @@ class KioskBridge(QObject):
                 else:
                     issues.append({"type": "brightness", "severity": "warning", "message": "Lighting is too bright. Avoid direct light on face."})
             else:
+                # Even poor lighting can work if other criteria are met
                 if brightness < 50:
-                    issues.append({"type": "brightness", "severity": "error", "message": "Too dark. Turn on lights or move to brighter area."})
+                    issues.append({"type": "brightness", "severity": "warning", "message": "Too dark. Turn on lights or move to brighter area."})
                 else:
-                    issues.append({"type": "brightness", "severity": "error", "message": "Too bright. Reduce direct lighting."})
+                    issues.append({"type": "brightness", "severity": "warning", "message": "Too bright. Reduce direct lighting."})
 
             # 4. Face Size Check (20 points)
-            if 0.20 <= face_size_ratio <= 0.35:
+            # More forgiving thresholds - accept smaller faces (further distance)
+            if 0.15 <= face_size_ratio <= 0.40:
+                # Good range - face is clearly visible
                 quality_score += 20
-            elif 0.15 <= face_size_ratio <= 0.40:
-                quality_score += 10
-                if face_size_ratio < 0.20:
+            elif 0.10 <= face_size_ratio <= 0.50:
+                # Acceptable range - slightly far or close
+                quality_score += 15
+                if face_size_ratio < 0.15:
                     issues.append({"type": "distance", "severity": "warning", "message": "Face is small. Move 6 inches closer to camera."})
                 else:
                     issues.append({"type": "distance", "severity": "warning", "message": "Face is large. Move back slightly."})
             else:
-                if face_size_ratio < 0.15:
-                    issues.append({"type": "distance", "severity": "error", "message": "Too far from camera. Move much closer."})
+                # Still usable but not ideal
+                quality_score += 5
+                if face_size_ratio < 0.10:
+                    issues.append({"type": "distance", "severity": "warning", "message": "Too far from camera. Move much closer."})
                 else:
-                    issues.append({"type": "distance", "severity": "error", "message": "Too close to camera. Move back."})
+                    issues.append({"type": "distance", "severity": "warning", "message": "Too close to camera. Move back."})
 
             # 5. Face Centering Check (15 points)
             face_center_x = (left + right) / 2
@@ -1035,6 +1093,7 @@ class KioskBridge(QObject):
                 quality_score += 8
 
             # Determine overall success
+            # Quality score must be >= 70 AND no critical errors (no_face, multiple_faces, decode)
             success = quality_score >= 70 and not any(issue['severity'] == 'error' for issue in issues)
 
             return json.dumps({
@@ -1173,10 +1232,16 @@ class KioskBridge(QObject):
             )
 
             if success:
+                # Clear face encodings cache after registration
+                self._face_encodings_cache = None
+                self._cache_timestamp = None
+
                 return json.dumps({
                     "success": True,
                     "message": "Face registered successfully!",
-                    "photo_path": str(photo_path)
+                    "photo_path": str(photo_path),
+                    "face_encoding": face_encoding_json,  # Return encoding for cloud upload
+                    "employee_id": employee_id
                 })
             else:
                 # Delete photo if database save failed
@@ -1633,6 +1698,7 @@ class KioskBridge(QObject):
                 })
 
             # Clear face encodings for all employees
+            # Note: Cloud sync not triggered here - use "Refresh from Live" to sync deletions to cloud
             success_count = 0
             failed_count = 0
 
@@ -1683,6 +1749,63 @@ class KioskBridge(QObject):
                 "message": f"Error clearing face data: {str(e)}",
                 "count": 0,
                 "duration": 0
+            })
+
+    @pyqtSlot(int, result=str)
+    def deleteFaceEncoding(self, employee_id):
+        """
+        Delete face encoding for a single employee.
+        Returns backend_id so frontend can delete from cloud API.
+
+        Args:
+            employee_id (int): Employee database ID
+
+        Returns:
+            str: JSON string with result and backend_id for cloud deletion
+        """
+        import json
+        import sqlite3
+
+        try:
+            # Get backend_id before deletion
+            conn = sqlite3.connect(self.db.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT backend_id, name FROM employee WHERE id = ?", (employee_id,))
+            result = cursor.fetchone()
+            conn.close()
+
+            if not result:
+                return json.dumps({
+                    "success": False,
+                    "message": "Employee not found"
+                })
+
+            backend_id, employee_name = result
+
+            # Delete locally
+            success, message = self.db.delete_face_encoding(employee_id)
+
+            if success:
+                # Clear cache
+                self._face_encodings_cache = None
+                self._cache_timestamp = None
+
+                return json.dumps({
+                    "success": True,
+                    "message": message,
+                    "backend_id": backend_id,
+                    "employee_name": employee_name
+                })
+            else:
+                return json.dumps({
+                    "success": False,
+                    "message": message
+                })
+
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Error deleting face encoding: {str(e)}"
             })
 
     @pyqtSlot(result=str)

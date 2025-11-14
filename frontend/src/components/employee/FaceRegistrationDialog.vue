@@ -75,7 +75,7 @@
             v-if="!capturedPhoto && isCameraReady"
             class="absolute inset-0 flex items-center justify-center pointer-events-none"
           >
-            <div class="relative w-64 h-64 border-2 border-green-400 rounded-full">
+            <div class="relative w-80 h-80 border-2 border-green-400 rounded-full">
               <div class="absolute inset-0 bg-green-400/10 rounded-full animate-pulse"></div>
               <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white text-sm font-medium bg-black/50 px-3 py-1 rounded-full">
                 Align your face here
@@ -235,6 +235,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
+import employeeService from '../../services/api/employee.service.js'
 
 const props = defineProps({
   isOpen: {
@@ -399,7 +400,7 @@ const registerFace = async () => {
   statusClass.value = 'bg-blue-50 border border-blue-200 text-blue-800'
 
   try {
-    // Call bridge method to register face
+    // Step 1: Register face locally via bridge
     const resultJson = await window.kioskBridge.registerFaceEncoding(
       props.employee.id,
       capturedPhoto.value
@@ -408,8 +409,29 @@ const registerFace = async () => {
     const result = JSON.parse(resultJson)
 
     if (result.success) {
-      statusMessage.value = result.message || 'Face registered successfully!'
-      statusClass.value = 'bg-green-50 border border-green-200 text-green-800'
+      statusMessage.value = 'Face registered locally. Syncing to cloud...'
+      statusClass.value = 'bg-blue-50 border border-blue-200 text-blue-800'
+
+      // Step 2: Upload face encoding to cloud
+      try {
+        const uploadResult = await employeeService.uploadFaceEncoding(
+          result.employee_id,
+          result.face_encoding
+        )
+
+        if (uploadResult.success) {
+          statusMessage.value = '✓ Face registered and synced to cloud!'
+          statusClass.value = 'bg-green-50 border border-green-200 text-green-800'
+        } else {
+          // Local registration succeeded, but cloud upload failed
+          statusMessage.value = '⚠ Face registered locally. Cloud sync will retry later.'
+          statusClass.value = 'bg-amber-50 border border-amber-200 text-amber-800'
+        }
+      } catch (cloudError) {
+        console.error('Cloud upload error:', cloudError)
+        statusMessage.value = '⚠ Face registered locally. Cloud sync will retry later.'
+        statusClass.value = 'bg-amber-50 border border-amber-200 text-amber-800'
+      }
 
       // Emit success and close after a brief delay
       setTimeout(() => {
