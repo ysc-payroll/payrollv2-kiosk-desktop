@@ -31,12 +31,6 @@ const useFaceRecognition = ref(false)
 const isFaceScanning = ref(false)
 const faceRecognitionInterval = ref(null)
 
-// Cooldown after clock-in (prevents same person from being detected immediately)
-const isInCooldown = ref(false)
-const cooldownSeconds = ref(5)
-const cooldownTimer = ref(null)
-const lastClockedEmployee = ref(null) // Store last employee info for success message
-
 // Employee validation state
 const employeeValidation = ref({
   status: 'default', // 'default' | 'not_found' | 'found' | 'recognizing'
@@ -147,47 +141,6 @@ const stopFaceScanning = () => {
   }
   isFaceScanning.value = false
 }
-
-// Cooldown Management (prevents same person from being detected immediately after clock-in)
-const startCooldown = (employeeName, action) => {
-  isInCooldown.value = true
-  cooldownSeconds.value = 5
-  lastClockedEmployee.value = {
-    name: employeeName,
-    action: action,
-    time: new Date().toLocaleTimeString()
-  }
-
-  // Stop face scanning during cooldown
-  stopFaceScanning()
-
-  // Start countdown timer
-  cooldownTimer.value = setInterval(() => {
-    cooldownSeconds.value--
-    if (cooldownSeconds.value <= 0) {
-      resetAfterCooldown()
-    }
-  }, 1000)
-}
-
-const resetAfterCooldown = () => {
-  // Clear countdown timer
-  if (cooldownTimer.value) {
-    clearInterval(cooldownTimer.value)
-    cooldownTimer.value = null
-  }
-
-  // Reset cooldown state
-  isInCooldown.value = false
-  cooldownSeconds.value = 5
-  lastClockedEmployee.value = null
-
-  // Resume face scanning if in face recognition mode
-  if (useFaceRecognition.value) {
-    startFaceScanning()
-  }
-}
-
 const performFaceRecognition = async () => {
   if (!cameraRef.value || !kioskBridge) return
 
@@ -444,9 +397,6 @@ const handleTimeEntry = async (action) => {
       if (result.success) {
         showToast(result.message, 'success')
 
-        // Store employee name before resetting
-        const employeeName = employeeValidation.value.employeeName || 'Employee'
-
         // Reset for next employee
         employeeId.value = ''
 
@@ -457,12 +407,8 @@ const handleTimeEntry = async (action) => {
           isValid: false
         }
 
-        // Start cooldown if in face recognition mode, otherwise focus input
-        if (useFaceRecognition.value) {
-          startCooldown(employeeName, action)
-        } else {
-          focusInput()
-        }
+        // Focus input for next entry
+        focusInput()
 
         // Reload recent logs
         loadRecentLogs()
@@ -1179,12 +1125,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   stopFaceScanning() // Cleanup face recognition interval
-
-  // Cleanup cooldown timer
-  if (cooldownTimer.value) {
-    clearInterval(cooldownTimer.value)
-    cooldownTimer.value = null
-  }
 })
 </script>
 
@@ -1511,40 +1451,6 @@ onBeforeUnmount(() => {
             @ready="handleCameraReady"
             @error="handleCameraError"
           />
-
-          <!-- Cooldown Overlay (after successful clock-in) -->
-          <div
-            v-if="isInCooldown"
-            class="absolute inset-0 bg-gradient-to-br from-green-500/95 to-green-600/95 flex flex-col items-center justify-center gap-4 p-6"
-          >
-            <!-- Success Icon -->
-            <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center">
-              <svg class="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-              </svg>
-            </div>
-
-            <!-- Success Message -->
-            <div class="text-center text-white">
-              <h3 class="text-2xl font-bold mb-1">Success!</h3>
-              <p class="text-lg">{{ lastClockedEmployee?.name }} clocked {{ lastClockedEmployee?.action?.toLowerCase() }}</p>
-              <p class="text-sm opacity-90 mt-1">at {{ lastClockedEmployee?.time }}</p>
-            </div>
-
-            <!-- Countdown Timer -->
-            <div class="text-center">
-              <p class="text-white text-sm mb-2">Next employee can clock in in:</p>
-              <div class="text-6xl font-bold text-white">{{ cooldownSeconds }}</div>
-            </div>
-
-            <!-- Manual Reset Button -->
-            <button
-              @click="resetAfterCooldown"
-              class="mt-4 px-8 py-3 bg-white text-green-600 rounded-lg font-semibold text-lg hover:bg-green-50 transition-all shadow-lg"
-            >
-              Next Employee →
-            </button>
-          </div>
 
           <!-- Employee Validation Status Overlay -->
           <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
