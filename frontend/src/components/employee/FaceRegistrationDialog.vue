@@ -304,10 +304,12 @@ const initCamera = async () => {
     isCameraReady.value = false
     statusMessage.value = ''
 
+    // Use lower resolution for better performance on lower-spec machines
+    // 640x480 is sufficient for face registration and much faster to process
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { ideal: 640 },
+        height: { ideal: 480 },
         facingMode: 'user'
       }
     })
@@ -351,7 +353,9 @@ const capturePhoto = async () => {
   const context = canvas.getContext('2d')
   context.drawImage(videoElement.value, 0, 0)
 
-  capturedPhoto.value = canvas.toDataURL('image/png')
+  // Use JPEG with quality 0.85 for face registration (higher than timekeeping for better quality)
+  // Still ~70% smaller than PNG while maintaining excellent quality for registration
+  capturedPhoto.value = canvas.toDataURL('image/jpeg', 0.85)
   isCapturing.value = true
 
   // Stop camera to save resources
