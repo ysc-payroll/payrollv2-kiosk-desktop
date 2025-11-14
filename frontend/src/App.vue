@@ -24,6 +24,8 @@ const employeeId = ref('')
 const cameraReady = ref(false)
 const cameraEnabled = ref(true) // Camera toggle state
 const cameraMirrored = ref(true) // Camera mirror/flip state (default: mirrored like a mirror)
+const showMirrorTooltip = ref(false) // Tooltip for mirror button
+const showCameraTooltip = ref(false) // Tooltip for camera toggle button
 const isProcessing = ref(false)
 
 // Face recognition mode
@@ -187,6 +189,22 @@ const performFaceRecognition = async () => {
       employeeName: 'Scanning for face...',
       isValid: false
     }
+  }
+}
+
+// Reset face recognition (for when wrong person is detected)
+const resetFaceRecognition = () => {
+  // Clear employee data
+  employeeId.value = ''
+  employeeValidation.value = {
+    status: 'default',
+    employeeName: '',
+    isValid: false
+  }
+
+  // Restart scanning if in face recognition mode
+  if (useFaceRecognition.value) {
+    startFaceScanning()
   }
 }
 
@@ -1415,33 +1433,53 @@ onBeforeUnmount(() => {
           <!-- Camera Control Buttons -->
           <div class="absolute top-2 right-2 z-10 flex gap-2">
             <!-- Flip/Mirror Camera Button -->
-            <button
-              @click="cameraMirrored = !cameraMirrored"
-              class="p-2 rounded-lg shadow-lg transition-all bg-blue-500 hover:bg-blue-600"
-              :title="cameraMirrored ? 'Normal View' : 'Mirror View'"
-            >
-              <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-              </svg>
-            </button>
+            <div class="relative">
+              <button
+                @click="cameraMirrored = !cameraMirrored"
+                @mouseenter="showMirrorTooltip = true"
+                @mouseleave="showMirrorTooltip = false"
+                class="p-2 rounded-lg shadow-lg transition-all bg-blue-500 hover:bg-blue-600"
+              >
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </button>
+              <!-- Mirror Tooltip -->
+              <div
+                v-if="showMirrorTooltip"
+                class="absolute top-full right-0 mt-1 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap shadow-lg"
+              >
+                {{ cameraMirrored ? 'Switch to Normal View' : 'Switch to Mirror View' }}
+              </div>
+            </div>
 
             <!-- Camera Toggle Button -->
-            <button
-              @click="toggleCamera"
-              class="p-2 rounded-lg shadow-lg transition-all"
-              :style="cameraEnabled ? 'background-color: #1CB454;' : 'background-color: #68625D;'"
-              @mouseover="handleCameraToggleHover($event, true)"
-              @mouseout="handleCameraToggleHover($event, false)"
-              :title="cameraEnabled ? 'Disable Camera' : 'Enable Camera'"
-            >
-              <svg v-if="cameraEnabled" class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              <svg v-else class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
+            <div class="relative">
+              <button
+                @click="toggleCamera"
+                @mouseenter="showCameraTooltip = true"
+                @mouseleave="showCameraTooltip = false"
+                class="p-2 rounded-lg shadow-lg transition-all"
+                :style="cameraEnabled ? 'background-color: #1CB454;' : 'background-color: #68625D;'"
+                @mouseover="handleCameraToggleHover($event, true)"
+                @mouseout="handleCameraToggleHover($event, false)"
+              >
+                <svg v-if="cameraEnabled" class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <svg v-else class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <!-- Camera Toggle Tooltip -->
+              <div
+                v-if="showCameraTooltip"
+                class="absolute top-full right-0 mt-1 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap shadow-lg"
+              >
+                {{ cameraEnabled ? 'Turn Off Camera' : 'Turn On Camera' }}
+              </div>
+            </div>
           </div>
 
           <CameraView
@@ -1493,6 +1531,18 @@ onBeforeUnmount(() => {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>Employee Found: {{ employeeValidation.employeeName }}</span>
+
+                <!-- Refresh Button (appears when face is detected) -->
+                <button
+                  v-if="useFaceRecognition"
+                  @click="resetFaceRecognition"
+                  class="ml-2 p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-all"
+                  title="Reset and scan again"
+                >
+                  <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
               </div>
             </div>
           </div>

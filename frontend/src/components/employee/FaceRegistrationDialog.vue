@@ -55,12 +55,36 @@
 
         <!-- Camera Preview or Captured Photo -->
         <div class="relative bg-slate-900 rounded-lg overflow-hidden mb-4" style="aspect-ratio: 4/3;">
+          <!-- Mirror Toggle Button (top-right corner) -->
+          <div v-if="!capturedPhoto && isCameraReady" class="absolute top-2 right-2 z-10">
+            <div class="relative">
+              <button
+                @click="cameraMirrored = !cameraMirrored"
+                @mouseenter="showMirrorTooltip = true"
+                @mouseleave="showMirrorTooltip = false"
+                class="p-2 rounded-lg shadow-lg transition-all bg-blue-500 hover:bg-blue-600"
+              >
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </button>
+              <!-- Mirror Tooltip -->
+              <div
+                v-if="showMirrorTooltip"
+                class="absolute top-full right-0 mt-1 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap shadow-lg"
+              >
+                {{ cameraMirrored ? 'Switch to Normal View' : 'Switch to Mirror View' }}
+              </div>
+            </div>
+          </div>
+
           <video
             v-if="!capturedPhoto"
             ref="videoElement"
             autoplay
             playsinline
             class="w-full h-full object-cover"
+            :style="{ transform: cameraMirrored ? 'scaleX(-1)' : 'none' }"
           ></video>
 
           <img
@@ -270,6 +294,8 @@ const qualityScore = ref(null)
 const qualityIssues = ref([])
 const qualityMetrics = ref(null)
 const isCheckingQuality = ref(false)
+const cameraMirrored = ref(true) // Camera mirror state (default: mirrored)
+const showMirrorTooltip = ref(false) // Tooltip for mirror button
 let mediaStream = null
 
 // Initialize camera
@@ -412,20 +438,27 @@ const registerFace = async () => {
       statusMessage.value = 'Face registered locally. Syncing to cloud...'
       statusClass.value = 'bg-blue-50 border border-blue-200 text-blue-800'
 
-      // Step 2: Upload face encoding to cloud
+      // Step 2: Upload face encoding to cloud using backend_id
       try {
-        const uploadResult = await employeeService.uploadFaceEncoding(
-          result.employee_id,
-          result.face_encoding
-        )
-
-        if (uploadResult.success) {
-          statusMessage.value = '✓ Face registered and synced to cloud!'
-          statusClass.value = 'bg-green-50 border border-green-200 text-green-800'
-        } else {
-          // Local registration succeeded, but cloud upload failed
-          statusMessage.value = '⚠ Face registered locally. Cloud sync will retry later.'
+        // Check if backend_id exists (employee must be synced from API)
+        if (!result.backend_id) {
+          console.warn('No backend_id found - employee not synced from API yet')
+          statusMessage.value = '⚠ Face registered locally. Sync employee from API to enable cloud sync.'
           statusClass.value = 'bg-amber-50 border border-amber-200 text-amber-800'
+        } else {
+          const uploadResult = await employeeService.uploadFaceEncoding(
+            result.backend_id,  // Use backend_id for API call
+            result.face_encoding
+          )
+
+          if (uploadResult.success) {
+            statusMessage.value = '✓ Face registered and synced to cloud!'
+            statusClass.value = 'bg-green-50 border border-green-200 text-green-800'
+          } else {
+            // Local registration succeeded, but cloud upload failed
+            statusMessage.value = '⚠ Face registered locally. Cloud sync will retry later.'
+            statusClass.value = 'bg-amber-50 border border-amber-200 text-amber-800'
+          }
         }
       } catch (cloudError) {
         console.error('Cloud upload error:', cloudError)

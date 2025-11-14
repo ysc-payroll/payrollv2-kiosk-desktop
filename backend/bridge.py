@@ -1236,12 +1236,21 @@ class KioskBridge(QObject):
                 self._face_encodings_cache = None
                 self._cache_timestamp = None
 
+                # Fetch backend_id for cloud sync
+                conn = self.db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT backend_id FROM employee WHERE id = ?", (employee_id,))
+                row = cursor.fetchone()
+                backend_id = row[0] if row else None
+                conn.close()
+
                 return json.dumps({
                     "success": True,
                     "message": "Face registered successfully!",
                     "photo_path": str(photo_path),
                     "face_encoding": face_encoding_json,  # Return encoding for cloud upload
-                    "employee_id": employee_id
+                    "employee_id": employee_id,  # Local database ID
+                    "backend_id": backend_id  # Backend API ID for cloud sync
                 })
             else:
                 # Delete photo if database save failed
