@@ -50,6 +50,10 @@ const props = defineProps({
   mirrored: {
     type: Boolean,
     default: true  // Default to mirrored (like a mirror)
+  },
+  lowResolution: {
+    type: Boolean,
+    default: false  // Use lower resolution for performance (face recognition scanning)
   }
 })
 
@@ -65,11 +69,15 @@ const startCamera = async () => {
   if (!props.enabled) return
 
   try {
+    // Use lower resolution for face scanning to improve performance on lower-spec machines
+    const resolution = props.lowResolution
+      ? { width: { ideal: 640 }, height: { ideal: 480 } }  // Lower resolution for face recognition
+      : { width: { ideal: 1280 }, height: { ideal: 720 } } // Full resolution for photos
+
     // Request camera access
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        ...resolution,
         facingMode: 'user'
       },
       audio: false
@@ -120,14 +128,30 @@ watch(() => props.enabled, (newVal) => {
   }
 })
 
+// Watch for lowResolution prop changes - restart camera with new resolution
+watch(() => props.lowResolution, () => {
+  if (props.enabled) {
+    stopCamera()
+    // Small delay to ensure camera is fully stopped before restarting
+    setTimeout(() => {
+      startCamera()
+    }, 100)
+  }
+})
+
 /**
  * Capture current video frame as base64 image
+ * @param {Object} options - Capture options
+ * @param {string} options.format - Image format: 'png' or 'jpeg' (default: 'png')
+ * @param {number} options.quality - JPEG quality 0-1 (default: 0.75, only for jpeg)
  * @returns {string} Base64 encoded image data URL
  */
-const capturePhoto = () => {
+const capturePhoto = (options = {}) => {
   if (!videoElement.value || !canvasElement.value) {
     throw new Error('Camera not ready')
   }
+
+  const { format = 'png', quality = 0.75 } = options
 
   const video = videoElement.value
   const canvas = canvasElement.value
@@ -140,8 +164,12 @@ const capturePhoto = () => {
   const ctx = canvas.getContext('2d')
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-  // Convert canvas to base64 PNG
-  return canvas.toDataURL('image/png')
+  // Convert canvas to base64 with specified format
+  if (format === 'jpeg') {
+    return canvas.toDataURL('image/jpeg', quality)
+  } else {
+    return canvas.toDataURL('image/png')
+  }
 }
 
 // Expose capturePhoto method to parent

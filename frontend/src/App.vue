@@ -32,6 +32,7 @@ const isProcessing = ref(false)
 const useFaceRecognition = ref(false)
 const isFaceScanning = ref(false)
 const faceRecognitionInterval = ref(null)
+const isRecognitionProcessing = ref(false) // Prevent concurrent face recognition scans
 
 // Employee validation state
 const employeeValidation = ref({
@@ -130,10 +131,13 @@ const startFaceScanning = () => {
     isValid: false
   }
 
-  // Scan every 3.5 seconds (optimized for better performance with many employees)
+  // Scan every 6 seconds (optimized for lower-spec machines)
   faceRecognitionInterval.value = setInterval(async () => {
-    await performFaceRecognition()
-  }, 3500)
+    // Skip scan if previous recognition still processing (prevents lag on slower machines)
+    if (!isRecognitionProcessing.value) {
+      await performFaceRecognition()
+    }
+  }, 6000)
 }
 
 const stopFaceScanning = () => {
@@ -146,12 +150,20 @@ const stopFaceScanning = () => {
 const performFaceRecognition = async () => {
   if (!cameraRef.value || !kioskBridge) return
 
+  // Set processing lock to prevent concurrent scans
+  isRecognitionProcessing.value = true
+
   try {
-    // Capture photo from camera
-    const photoBase64 = await cameraRef.value.capturePhoto()
+    // Capture photo from camera with JPEG compression for faster transfer
+    // Quality 0.75 reduces payload ~80% while maintaining face recognition accuracy
+    const photoBase64 = await cameraRef.value.capturePhoto({
+      format: 'jpeg',
+      quality: 0.75
+    })
 
     if (!photoBase64) {
       console.log('No photo captured')
+      isRecognitionProcessing.value = false
       return
     }
 
@@ -189,6 +201,9 @@ const performFaceRecognition = async () => {
       employeeName: 'Scanning for face...',
       isValid: false
     }
+  } finally {
+    // Release processing lock
+    isRecognitionProcessing.value = false
   }
 }
 
@@ -1486,6 +1501,7 @@ onBeforeUnmount(() => {
             ref="cameraRef"
             :enabled="cameraEnabled"
             :mirrored="cameraMirrored"
+            :lowResolution="useFaceRecognition"
             @ready="handleCameraReady"
             @error="handleCameraError"
           />

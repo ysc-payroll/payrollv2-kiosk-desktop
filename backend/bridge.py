@@ -1308,26 +1308,18 @@ class KioskBridge(QObject):
             # Decode base64
             photo_bytes = base64.b64decode(photo_base64)
 
-            # Save temporary photo in app data dir
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            data_dir = get_app_data_dir()
-            temp_dir = data_dir / "temp"
-            temp_dir.mkdir(parents=True, exist_ok=True)
+            # Load image directly from bytes (no temp file I/O for better performance)
+            from PIL import Image
+            import io
 
-            temp_photo_path = temp_dir / f"recognize_{timestamp}.png"
+            # Open image from bytes
+            pil_image = Image.open(io.BytesIO(photo_bytes))
 
-            with open(temp_photo_path, "wb") as f:
-                f.write(photo_bytes)
+            # Convert PIL image to numpy array (required by face_recognition)
+            image = np.array(pil_image)
 
-            # Load image and detect faces
-            image = face_recognition.load_image_file(str(temp_photo_path))
+            # Detect faces
             face_encodings = face_recognition.face_encodings(image)
-
-            # Clean up temp photo
-            try:
-                os.remove(temp_photo_path)
-            except:
-                pass
 
             if len(face_encodings) == 0:
                 return json.dumps({
