@@ -4,11 +4,15 @@ Exposes Python methods to the Vue.js frontend.
 """
 import base64
 import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QFileDialog
 from database import Database, get_app_data_dir
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 
 class KioskBridge(QObject):
@@ -1135,21 +1139,20 @@ class KioskBridge(QObject):
         import json
         import numpy as np
 
+        logger.info("registerFace called for employee: %s", employee_id)
+
         try:
             # Import face_recognition library
             import face_recognition
+            logger.info("✅ face_recognition library imported successfully")
         except ImportError as e:
-            import sys
-            sys.stderr.write(f"❌ Failed to import face_recognition: {e}\n")
-            sys.stderr.flush()
+            logger.error(f"❌ Failed to import face_recognition: {e}")
             return json.dumps({
                 "success": False,
                 "message": f"Face recognition library not installed: {str(e)}"
             })
         except Exception as e:
-            import sys
-            sys.stderr.write(f"❌ Unexpected error importing face_recognition: {e}\n")
-            sys.stderr.flush()
+            logger.error(f"❌ Unexpected error importing face_recognition: {e}")
             return json.dumps({
                 "success": False,
                 "message": f"Error loading face recognition: {str(e)}"
@@ -1162,9 +1165,8 @@ class KioskBridge(QObject):
 
             # If quality check fails, return detailed error
             if not quality_data.get('success', False):
-                import sys
-                sys.stderr.write(f"⚠️ Face quality check failed: {quality_data.get('message')}\n")
-                sys.stderr.flush()
+                logger.warning(f"⚠️ Face quality check failed: {quality_data.get('message')}")
+                logger.warning(f"   Quality score: {quality_data.get('quality_score', 0)}/100")
 
                 # Return detailed quality issues
                 return json.dumps({
@@ -1175,9 +1177,7 @@ class KioskBridge(QObject):
                 })
 
             # Quality check passed, proceed with registration
-            import sys
-            sys.stderr.write(f"✅ Face quality check passed: {quality_data.get('quality_score')}/100\n")
-            sys.stderr.flush()
+            logger.info(f"✅ Face quality check passed: {quality_data.get('quality_score')}/100")
 
             # Remove data URL prefix
             if "base64," in photo_base64:
@@ -1187,25 +1187,24 @@ class KioskBridge(QObject):
             photo_bytes = base64.b64decode(photo_base64)
 
             # Save photo to faces directory in app data dir
-            import sys
             import platform
 
             data_dir = get_app_data_dir()
             faces_dir = data_dir / "faces"
 
-            sys.stderr.write(f"📁 Attempting to create faces directory: {faces_dir}\n")
-            sys.stderr.flush()
+            logger.info("=" * 60)
+            logger.info("FACE REGISTRATION - PHOTO SAVE PROCESS")
+            logger.info(f"Attempting to create faces directory: {faces_dir}")
 
             # Ensure faces directory exists with proper error handling
             try:
                 faces_dir.mkdir(parents=True, exist_ok=True)
-                sys.stderr.write(f"✅ Faces directory created/verified: {faces_dir}\n")
-                sys.stderr.flush()
+                logger.info(f"✅ Faces directory created/verified: {faces_dir}")
             except Exception as mkdir_error:
-                sys.stderr.write(f"❌ Failed to create faces directory: {mkdir_error}\n")
-                sys.stderr.write(f"   Directory path: {faces_dir}\n")
-                sys.stderr.write(f"   Path length: {len(str(faces_dir))} characters\n")
-                sys.stderr.flush()
+                logger.error(f"❌ Failed to create faces directory: {mkdir_error}")
+                logger.error(f"   Directory path: {faces_dir}")
+                logger.error(f"   Path length: {len(str(faces_dir))} characters")
+                logger.error(f"   Error type: {type(mkdir_error).__name__}")
                 return json.dumps({
                     "success": False,
                     "message": f"Failed to create storage directory: {str(mkdir_error)}"
@@ -1222,26 +1221,28 @@ class KioskBridge(QObject):
             if platform.system() == 'Windows' and len(str(photo_path)) > 200:
                 # Convert to UNC path for long paths on Windows
                 photo_path_str = f"\\\\?\\{photo_path.resolve()}"
-                sys.stderr.write(f"⚠️  Long path detected on Windows, using UNC: {photo_path_str}\n")
+                logger.warning(f"⚠️  Long path detected on Windows ({len(str(photo_path))} chars)")
+                logger.warning(f"   Using UNC path: {photo_path_str}")
             else:
                 photo_path_str = str(photo_path)
 
-            sys.stderr.write(f"💾 Attempting to save photo: {photo_path}\n")
-            sys.stderr.write(f"   Full path length: {len(str(photo_path))} characters\n")
-            sys.stderr.flush()
+            logger.info(f"💾 Attempting to save photo: {photo_filename}")
+            logger.info(f"   Full path: {photo_path}")
+            logger.info(f"   Path length: {len(str(photo_path))} characters")
+            logger.info(f"   Employee ID: {employee_id}")
 
             # Save photo with proper error handling
             try:
                 with open(photo_path_str, "wb") as f:
                     f.write(photo_bytes)
-                sys.stderr.write(f"✅ Photo saved successfully\n")
-                sys.stderr.flush()
+                logger.info(f"✅ Photo saved successfully to: {photo_filename}")
+                logger.info(f"   File size: {len(photo_bytes)} bytes")
             except Exception as write_error:
-                sys.stderr.write(f"❌ Failed to write photo file: {write_error}\n")
-                sys.stderr.write(f"   Error type: {type(write_error).__name__}\n")
-                sys.stderr.write(f"   File path: {photo_path}\n")
-                sys.stderr.write(f"   Path length: {len(str(photo_path))} characters\n")
-                sys.stderr.flush()
+                logger.error(f"❌ Failed to write photo file: {write_error}")
+                logger.error(f"   Error type: {type(write_error).__name__}")
+                logger.error(f"   File path: {photo_path}")
+                logger.error(f"   Path length: {len(str(photo_path))} characters")
+                logger.error(f"   Platform: {platform.system()}")
                 return json.dumps({
                     "success": False,
                     "message": f"Failed to save photo: {str(write_error)}. Check disk space and permissions."

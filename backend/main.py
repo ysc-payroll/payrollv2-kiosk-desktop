@@ -48,7 +48,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file, mode='w'),  # Overwrite each time
+        logging.FileHandler(log_file, mode='a'),  # Append mode to keep logs across sessions
         logging.StreamHandler(sys.stderr)  # Also print to console
     ]
 )
