@@ -39,9 +39,11 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtCore import QUrl
 from bridge import KioskBridge
+from database import get_app_data_dir
 
-# Setup logging to file on Desktop
-log_file = Path.home() / "Desktop" / "timekeeper_debug.log"
+# Setup logging to file in app data directory (same folder as database)
+app_data_dir = get_app_data_dir()
+log_file = app_data_dir / "timekeeper_debug.log"
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -54,6 +56,7 @@ logger = logging.getLogger(__name__)
 
 logger.info("="*80)
 logger.info("TIMEKEEPER PAYROLL APPLICATION STARTING")
+logger.info(f"App data directory: {app_data_dir}")
 logger.info(f"Log file: {log_file}")
 logger.info(f"Python version: {sys.version}")
 logger.info(f"Platform: {sys.platform}")

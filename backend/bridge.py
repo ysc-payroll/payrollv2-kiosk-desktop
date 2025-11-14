@@ -1187,16 +1187,65 @@ class KioskBridge(QObject):
             photo_bytes = base64.b64decode(photo_base64)
 
             # Save photo to faces directory in app data dir
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            import sys
+            import platform
+
             data_dir = get_app_data_dir()
             faces_dir = data_dir / "faces"
-            faces_dir.mkdir(parents=True, exist_ok=True)
 
-            photo_filename = f"employee_{employee_id}_{timestamp}.png"
+            sys.stderr.write(f"📁 Attempting to create faces directory: {faces_dir}\n")
+            sys.stderr.flush()
+
+            # Ensure faces directory exists with proper error handling
+            try:
+                faces_dir.mkdir(parents=True, exist_ok=True)
+                sys.stderr.write(f"✅ Faces directory created/verified: {faces_dir}\n")
+                sys.stderr.flush()
+            except Exception as mkdir_error:
+                sys.stderr.write(f"❌ Failed to create faces directory: {mkdir_error}\n")
+                sys.stderr.write(f"   Directory path: {faces_dir}\n")
+                sys.stderr.write(f"   Path length: {len(str(faces_dir))} characters\n")
+                sys.stderr.flush()
+                return json.dumps({
+                    "success": False,
+                    "message": f"Failed to create storage directory: {str(mkdir_error)}"
+                })
+
+            # Use shorter filename to avoid Windows MAX_PATH (260 char) issues
+            # Format: emp_<id>_<timestamp>.jpg  (instead of employee_<id>_<timestamp>)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            file_extension = "jpg" if "image/jpeg" in photo_base64 else "png"
+            photo_filename = f"emp_{employee_id}_{timestamp}.{file_extension}"
             photo_path = faces_dir / photo_filename
 
-            with open(photo_path, "wb") as f:
-                f.write(photo_bytes)
+            # On Windows, use UNC path (\\?\) to bypass MAX_PATH limit if path is long
+            if platform.system() == 'Windows' and len(str(photo_path)) > 200:
+                # Convert to UNC path for long paths on Windows
+                photo_path_str = f"\\\\?\\{photo_path.resolve()}"
+                sys.stderr.write(f"⚠️  Long path detected on Windows, using UNC: {photo_path_str}\n")
+            else:
+                photo_path_str = str(photo_path)
+
+            sys.stderr.write(f"💾 Attempting to save photo: {photo_path}\n")
+            sys.stderr.write(f"   Full path length: {len(str(photo_path))} characters\n")
+            sys.stderr.flush()
+
+            # Save photo with proper error handling
+            try:
+                with open(photo_path_str, "wb") as f:
+                    f.write(photo_bytes)
+                sys.stderr.write(f"✅ Photo saved successfully\n")
+                sys.stderr.flush()
+            except Exception as write_error:
+                sys.stderr.write(f"❌ Failed to write photo file: {write_error}\n")
+                sys.stderr.write(f"   Error type: {type(write_error).__name__}\n")
+                sys.stderr.write(f"   File path: {photo_path}\n")
+                sys.stderr.write(f"   Path length: {len(str(photo_path))} characters\n")
+                sys.stderr.flush()
+                return json.dumps({
+                    "success": False,
+                    "message": f"Failed to save photo: {str(write_error)}. Check disk space and permissions."
+                })
 
             # Load image and detect faces
             image = face_recognition.load_image_file(str(photo_path))
