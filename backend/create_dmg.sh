@@ -7,7 +7,7 @@ APP_NAME="Timekeeper Payroll"
 # Use project root dist directory
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${PROJECT_ROOT}/dist/${APP_NAME}.app"
-DMG_NAME="TimekeeperPayroll-v2.0.1"
+DMG_NAME="TimekeeperPayroll-v2.0.10"
 DMG_PATH="${PROJECT_ROOT}/dist/${DMG_NAME}.dmg"
 VOLUME_NAME="Timekeeper Payroll Installer"
 TEMP_DMG="${PROJECT_ROOT}/dist/temp.dmg"

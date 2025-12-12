@@ -73,7 +73,7 @@ class HttpClient {
 
     // Add custom desktop app headers
     headers['X-Timekeeper-Desktop'] = 'true'
-    headers['X-App-Version'] = '2.0.1'
+    headers['X-App-Version'] = '2.0.10'
     headers['X-App-Secret'] = '0PyX2b4ATZ8A73BDbfA6QENRant-pBylVML6QO6fBc0'
 
     // Make request

@@ -92,8 +92,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'Timekeeper Payroll',
         'CFBundleDisplayName': 'Timekeeper Payroll',
-        'CFBundleVersion': '2.0.1',
-        'CFBundleShortVersionString': '2.0.1',
+        'CFBundleVersion': '2.0.10',
+        'CFBundleShortVersionString': '2.0.10',
         'NSHighResolutionCapable': True,
         'LSBackgroundOnly': False,  # Ensure app shows UI
         'NSCameraUsageDescription': 'Timekeeper Payroll needs camera access to capture employee photos for time logging and facial recognition.',
