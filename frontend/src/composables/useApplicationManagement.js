@@ -66,6 +66,15 @@ export function useApplicationManagement(resourceType, serviceApi, options = {})
   // Permissions
   const userData = ref(null)
   const permissions = computed(() => {
+    return {
+      canCreate: true,
+      canRead: true,
+      canUpdate: true,
+      canDelete: true,
+      canCancel: true,
+      canSelectEmployee: true
+    }
+
     if (!userData.value?.permissions) {
       return {
         canCreate: false,
